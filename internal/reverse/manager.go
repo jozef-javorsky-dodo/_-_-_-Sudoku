@@ -939,12 +939,10 @@ func urlHasPathPrefix(u []byte, prefix []byte) bool {
 	switch u[len(prefix)] {
 	case '/', '?', '#':
 		return true
-	case '"', '\'', '`', ')', ',', ';', ' ', '\t', '\n', '\r', '\f':
+	default:
 		// Many rewrites operate on a larger byte slice than the URL token itself.
 		// Treat common token terminators as a valid boundary so rewriting is idempotent.
-		return true
-	default:
-		return false
+		return isURLTerminalByte(u[len(prefix)])
 	}
 }
 
