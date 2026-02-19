@@ -22,6 +22,7 @@ import (
 	"github.com/saba-futai/sudoku/pkg/crypto"
 	"github.com/saba-futai/sudoku/pkg/dnsutil"
 	"github.com/saba-futai/sudoku/pkg/geodata"
+	"github.com/saba-futai/sudoku/pkg/logx"
 	"github.com/saba-futai/sudoku/pkg/obfs/sudoku"
 )
 
@@ -189,7 +190,7 @@ func handleClientSocks5(conn net.Conn, cfg *config.Config, table *sudoku.Table, 
 		return
 	}
 
-	targetConn, success := dialTarget(destAddrStr, destIP, cfg, geoMgr, dialer)
+	targetConn, success := dialTarget("TCP", conn.RemoteAddr(), destAddrStr, destIP, cfg, geoMgr, dialer)
 	if !success {
 		conn.Write([]byte{0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
@@ -490,7 +491,7 @@ func handleClientSocks4(conn net.Conn, cfg *config.Config, table *sudoku.Table, 
 	}
 
 	// Route & Connect
-	targetConn, success := dialTarget(destAddrStr, destIP, cfg, geoMgr, dialer)
+	targetConn, success := dialTarget("TCP", conn.RemoteAddr(), destAddrStr, destIP, cfg, geoMgr, dialer)
 	if !success {
 		conn.Write([]byte{0x00, 0x5B, 0, 0, 0, 0, 0, 0})
 		return
@@ -559,7 +560,7 @@ func handleHTTP(conn net.Conn, cfg *config.Config, table *sudoku.Table, geoMgr *
 
 	destIP := net.ParseIP(hostOnly(host))
 
-	targetConn, success := dialTarget(host, destIP, cfg, geoMgr, dialer)
+	targetConn, success := dialTarget("TCP", conn.RemoteAddr(), host, destIP, cfg, geoMgr, dialer)
 	if !success {
 		conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 		return
@@ -580,7 +581,7 @@ func handleHTTP(conn net.Conn, cfg *config.Config, table *sudoku.Table, geoMgr *
 
 			retryable := req.Body == nil || req.Body == http.NoBody
 			if retryable && (req.ContentLength <= 0) {
-				if targetConn2, ok := dialTarget(host, destIP, cfg, geoMgr, dialer); ok {
+				if targetConn2, ok := dialTarget("TCP", conn.RemoteAddr(), host, destIP, cfg, geoMgr, dialer); ok {
 					if err2 := req.Write(targetConn2); err2 == nil {
 						pipeConn(conn, targetConn2)
 						return
@@ -596,20 +597,27 @@ func handleHTTP(conn net.Conn, cfg *config.Config, table *sudoku.Table, geoMgr *
 	}
 }
 
-func dialTarget(destAddrStr string, destIP net.IP, cfg *config.Config, geoMgr *geodata.Manager, dialer tunnel.Dialer) (net.Conn, bool) {
+func dialTarget(network string, src net.Addr, destAddrStr string, destIP net.IP, cfg *config.Config, geoMgr *geodata.Manager, dialer tunnel.Dialer) (net.Conn, bool) {
 	shouldProxy := true
 	directAddr := destAddrStr
+	match := "NONE"
 
 	switch cfg.ProxyMode {
 	case "direct":
 		shouldProxy = false
+		match = "MODE(direct)"
 	case "pac":
-		if geoMgr != nil && geoMgr.IsCN(destAddrStr, destIP) {
-			shouldProxy = false
+		if geoMgr == nil {
 			break
 		}
 
-		if geoMgr != nil && destIP == nil {
+		if ok, m := geoMgr.MatchCN(destAddrStr, destIP); ok {
+			shouldProxy = false
+			match = m.String()
+			break
+		}
+
+		if destIP == nil {
 			host, port, err := net.SplitHostPort(destAddrStr)
 			if err != nil {
 				break
@@ -623,20 +631,42 @@ func dialTarget(destAddrStr string, destIP net.IP, cfg *config.Config, geoMgr *g
 			}
 
 			var directIP net.IP
+			var directMatch geodata.Match
 			for _, ip := range ips {
-				if geoMgr.IsCN(destAddrStr, ip) {
+				if ok, m := geoMgr.MatchCN(destAddrStr, ip); ok {
 					directIP = ip
+					directMatch = m
 					break
 				}
 			}
 			if directIP != nil {
 				shouldProxy = false
 				directAddr = net.JoinHostPort(directIP.String(), port)
+				match = "DNS->" + directMatch.String()
 			}
 		}
 	default: // global
 		shouldProxy = true
+		match = "MODE(global)"
 	}
+
+	srcStr := "<unknown>"
+	if src != nil {
+		srcStr = src.String()
+	}
+	action := "PROXY"
+	if !shouldProxy {
+		action = "DIRECT"
+	}
+	matchText := match
+	actionText := action
+	if action == "DIRECT" {
+		actionText = logx.Bold(logx.Green(action))
+	} else {
+		actionText = logx.Bold(logx.Magenta(action))
+	}
+	matchText = logx.Yellow(matchText)
+	logx.Infof(strings.ToUpper(strings.TrimSpace(network)), "%s --> %s match %s using %s", srcStr, destAddrStr, matchText, actionText)
 
 	if shouldProxy {
 		conn, err := dialer.Dial(destAddrStr)

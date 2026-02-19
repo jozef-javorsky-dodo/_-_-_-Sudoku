@@ -98,7 +98,7 @@ func TestDialTarget_PACAcceptsAnyMatchingIP(t *testing.T) {
 		},
 	}
 
-	_, ok := dialTarget("foo.example:443", nil, cfg, geoMgr, dialer)
+	_, ok := dialTarget("TCP", nil, "foo.example:443", nil, cfg, geoMgr, dialer)
 	if !ok {
 		t.Fatalf("expected direct dial success")
 	}

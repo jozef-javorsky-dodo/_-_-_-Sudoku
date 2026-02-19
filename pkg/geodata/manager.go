@@ -3,6 +3,7 @@ package geodata
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -45,6 +46,18 @@ type Manager struct {
 	domainSuffix map[string]struct{} // 后缀匹配 DOMAIN-SUFFIX
 	mu           sync.RWMutex
 	urls         []string
+}
+
+type Match struct {
+	Kind  string
+	Value string
+}
+
+func (m Match) String() string {
+	if strings.TrimSpace(m.Value) == "" {
+		return m.Kind
+	}
+	return fmt.Sprintf("%s(%s)", m.Kind, m.Value)
 }
 
 // RuleSet 用于解析 YAML 格式的 payload
@@ -271,6 +284,46 @@ func matchIPv6Range(ranges []IPv6Range, ip net.IP) bool {
 	copy(key[:], ip16)
 	idx := sort.Search(len(ranges), func(i int) bool { return compareIPv6(ranges[i].End, key) >= 0 })
 	return idx < len(ranges) && compareIPv6(ranges[idx].Start, key) <= 0
+}
+
+func (m *Manager) MatchCN(host string, ip net.IP) (bool, Match) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.isLocalNetwork(ip) {
+		return true, Match{Kind: "LOCAL"}
+	}
+
+	host = normalizeLookupHost(host)
+	hostIP := net.ParseIP(host)
+	if host != "" && (hostIP == nil || ip == nil || !hostIP.Equal(ip)) {
+		domain := host
+		if _, ok := m.domainExact[domain]; ok {
+			return true, Match{Kind: "DOMAIN", Value: domain}
+		}
+
+		parts := strings.Split(domain, ".")
+		for i := 0; i < len(parts); i++ {
+			suffix := strings.Join(parts[i:], ".")
+			if _, ok := m.domainSuffix[suffix]; ok {
+				return true, Match{Kind: "DOMAIN-SUFFIX", Value: suffix}
+			}
+		}
+	}
+
+	if ip != nil {
+		if ip.To4() != nil {
+			if matchIPv4Range(m.ipRanges, ip) {
+				return true, Match{Kind: "IP", Value: ip.String()}
+			}
+			return false, Match{}
+		}
+		if matchIPv6Range(m.ipv6Ranges, ip) {
+			return true, Match{Kind: "IP", Value: ip.String()}
+		}
+	}
+
+	return false, Match{}
 }
 
 // IsCN 检查目标是否匹配 CN 规则 (域名优先，其次 IP)
