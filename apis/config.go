@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2025 by ふたい <contact me via issue>
+Copyright (C) 2026 by saba <contact me via issue>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -175,11 +175,11 @@ func (c *ProtocolConfig) Validate() error {
 		return fmt.Errorf("HandshakeTimeoutSeconds must be >= 0, got %d", c.HandshakeTimeoutSeconds)
 	}
 
-		switch strings.ToLower(strings.TrimSpace(c.HTTPMaskMode)) {
-		case "", "legacy", "stream", "poll", "auto", "ws":
-		default:
-			return fmt.Errorf("invalid HTTPMaskMode: %s, must be one of: legacy, stream, poll, auto, ws", c.HTTPMaskMode)
-		}
+	switch strings.ToLower(strings.TrimSpace(c.HTTPMaskMode)) {
+	case "", "legacy", "stream", "poll", "auto", "ws":
+	default:
+		return fmt.Errorf("invalid HTTPMaskMode: %s, must be one of: legacy, stream, poll, auto, ws", c.HTTPMaskMode)
+	}
 
 	switch strings.ToLower(strings.TrimSpace(c.HTTPMaskMultiplex)) {
 	case "", "off", "auto", "on":
