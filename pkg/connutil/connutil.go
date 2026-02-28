@@ -10,6 +10,10 @@ type CloseWriter interface {
 	CloseWrite() error
 }
 
+type closer interface {
+	Close() error
+}
+
 // TryCloseRead calls CloseRead when supported.
 func TryCloseRead(target any) error {
 	if target == nil {
@@ -21,13 +25,18 @@ func TryCloseRead(target any) error {
 	return nil
 }
 
-// TryCloseWrite calls CloseWrite when supported.
+// TryCloseWrite calls CloseWrite when supported. If half-close isn't supported,
+// it falls back to Close() when available to avoid deadlocks (e.g. WebSocket
+// net.Conn wrappers without CloseWrite).
 func TryCloseWrite(target any) error {
 	if target == nil {
 		return nil
 	}
 	if cw, ok := target.(CloseWriter); ok {
 		return cw.CloseWrite()
+	}
+	if c, ok := target.(closer); ok {
+		return c.Close()
 	}
 	return nil
 }
