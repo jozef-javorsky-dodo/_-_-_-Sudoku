@@ -8,6 +8,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/saba-futai/sudoku/pkg/connutil"
 )
 
 func TestRecordConn_KeyUpdate_FullDuplex(t *testing.T) {
@@ -123,7 +125,7 @@ func TestRecordConn_KeyUpdate_FullDuplex(t *testing.T) {
 		}
 		_, _ = rng.Read(buf[:n])
 		_, _ = writeH.Write(buf[:n])
-		if err := writeAll(rcClient, buf[:n]); err != nil {
+		if err := connutil.WriteFull(rcClient, buf[:n]); err != nil {
 			t.Fatalf("client write: %v", err)
 		}
 		remain -= n
@@ -140,20 +142,3 @@ func TestRecordConn_KeyUpdate_FullDuplex(t *testing.T) {
 		t.Fatalf("hash mismatch")
 	}
 }
-
-func writeAll(w io.Writer, b []byte) error {
-	for len(b) > 0 {
-		n, err := w.Write(b)
-		if n > 0 {
-			b = b[n:]
-		}
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return io.ErrShortWrite
-		}
-	}
-	return nil
-}
-

@@ -10,6 +10,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/saba-futai/sudoku/pkg/connutil"
 )
 
 const (
@@ -67,14 +69,13 @@ func WriteKIPMessage(w io.Writer, typ byte, payload []byte) error {
 	hdr[3] = typ
 	binary.BigEndian.PutUint16(hdr[4:], uint16(len(payload)))
 
-	if _, err := w.Write(hdr[:]); err != nil {
+	if err := connutil.WriteFull(w, hdr[:]); err != nil {
 		return err
 	}
 	if len(payload) == 0 {
 		return nil
 	}
-	_, err := w.Write(payload)
-	return err
+	return connutil.WriteFull(w, payload)
 }
 
 func ReadKIPMessage(r io.Reader) (*KIPMessage, error) {

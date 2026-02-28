@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/saba-futai/sudoku/apis"
+	"github.com/saba-futai/sudoku/pkg/connutil"
 	"github.com/saba-futai/sudoku/pkg/crypto"
 	"github.com/saba-futai/sudoku/pkg/obfs/sudoku"
 )
@@ -194,22 +195,6 @@ func smokeFallback(ctx context.Context, host string, port int) error {
 	return nil
 }
 
-func writeFull(conn net.Conn, b []byte) error {
-	for len(b) > 0 {
-		n, err := conn.Write(b)
-		if n > 0 {
-			b = b[n:]
-		}
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return io.ErrShortWrite
-		}
-	}
-	return nil
-}
-
 func smokeForward(ctx context.Context, cfg *apis.ProtocolConfig, msgSize int, ioTimeout time.Duration) error {
 	c, err := apis.Dial(ctx, cfg)
 	if err != nil {
@@ -226,7 +211,7 @@ func smokeForward(ctx context.Context, cfg *apis.ProtocolConfig, msgSize int, io
 		ioTimeout = 10 * time.Second
 	}
 	_ = c.SetWriteDeadline(time.Now().Add(ioTimeout))
-	if err := writeFull(c, payload); err != nil {
+	if err := connutil.WriteFull(c, payload); err != nil {
 		return err
 	}
 	_ = c.SetWriteDeadline(time.Time{})
@@ -338,7 +323,7 @@ func smokeForwardHash(ctx context.Context, cfg *apis.ProtocolConfig, totalBytes 
 		}
 		_, _ = rng.Read(buf[:n])
 		_, _ = writeH.Write(buf[:n])
-		if err := writeFull(conn, buf[:n]); err != nil {
+		if err := connutil.WriteFull(conn, buf[:n]); err != nil {
 			return err
 		}
 		remain -= n
