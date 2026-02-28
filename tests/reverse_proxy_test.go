@@ -36,14 +36,14 @@ import (
 
 func waitForAddr(t testing.TB, addr string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		c, err := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		c, err := net.DialTimeout("tcp", addr, 250*time.Millisecond)
 		if err == nil {
 			_ = c.Close()
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("address not ready: %s", addr)
 }

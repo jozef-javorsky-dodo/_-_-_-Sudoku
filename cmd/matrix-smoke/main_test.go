@@ -9,19 +9,6 @@ import (
 func TestMatrixSmoke(t *testing.T) {
 	t.Helper()
 
-	origFailFast := *flagFailFast
-	origVerbose := *flagVerbose
-	origTimeout := *flagTimeout
-	origQuick := *flagQuick
-	origPayload := *flagPayload
-	t.Cleanup(func() {
-		*flagFailFast = origFailFast
-		*flagVerbose = origVerbose
-		*flagTimeout = origTimeout
-		*flagQuick = origQuick
-		*flagPayload = origPayload
-	})
-
 	*flagFailFast = true
 	*flagVerbose = false
 	*flagTimeout = 5 * time.Second
@@ -66,4 +53,3 @@ func TestMatrixSmoke(t *testing.T) {
 		})
 	}
 }
-

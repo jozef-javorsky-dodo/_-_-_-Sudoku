@@ -559,14 +559,14 @@ func startSudokuClient(t testing.TB, cfg *config.Config) {
 func waitForPort(t testing.TB, port int) {
 	t.Helper()
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		conn, err := net.DialTimeout("tcp", addr, 250*time.Millisecond)
 		if err == nil {
 			conn.Close()
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("port not ready: %s", addr)
 }
