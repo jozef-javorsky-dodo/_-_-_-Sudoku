@@ -25,6 +25,7 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,9 +33,9 @@ import (
 )
 
 func TestRecordConn_KeyUpdate_FullDuplex(t *testing.T) {
-	old := KeyUpdateAfterBytes
-	KeyUpdateAfterBytes = 64 * 1024 // force many epochs quickly
-	t.Cleanup(func() { KeyUpdateAfterBytes = old })
+	old := atomic.LoadInt64(&KeyUpdateAfterBytes)
+	atomic.StoreInt64(&KeyUpdateAfterBytes, 64*1024) // force many epochs quickly
+	t.Cleanup(func() { atomic.StoreInt64(&KeyUpdateAfterBytes, old) })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

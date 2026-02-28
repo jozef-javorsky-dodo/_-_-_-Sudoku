@@ -641,9 +641,9 @@ func runOne(tc combo) error {
 	clientCfg.ServerAddress = srv.serverAddr
 	clientCfg.TargetAddress = echo1
 
-	oldKU := crypto.KeyUpdateAfterBytes
-	crypto.KeyUpdateAfterBytes = 32 << 10 // 32 KiB (smoke)
-	defer func() { crypto.KeyUpdateAfterBytes = oldKU }()
+	oldKU := atomic.LoadInt64(&crypto.KeyUpdateAfterBytes)
+	atomic.StoreInt64(&crypto.KeyUpdateAfterBytes, 32<<10) // 32 KiB (smoke)
+	defer atomic.StoreInt64(&crypto.KeyUpdateAfterBytes, oldKU)
 
 	fwdCtx, fwdCancel := context.WithTimeout(context.Background(), *flagTimeout)
 	defer fwdCancel()

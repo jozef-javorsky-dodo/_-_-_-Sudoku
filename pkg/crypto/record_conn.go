@@ -31,6 +31,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"github.com/saba-futai/sudoku/pkg/connutil"
 
@@ -230,11 +231,12 @@ func deriveEpochKey(base []byte, epoch uint32, method string) []byte {
 }
 
 func (c *RecordConn) maybeBumpSendEpochLocked(addedPlain int) {
-	if KeyUpdateAfterBytes <= 0 || c.method == "none" {
+	ku := atomic.LoadInt64(&KeyUpdateAfterBytes)
+	if ku <= 0 || c.method == "none" {
 		return
 	}
 	c.sendBytes += int64(addedPlain)
-	threshold := KeyUpdateAfterBytes * int64(c.sendEpoch+1)
+	threshold := ku * int64(c.sendEpoch+1)
 	if c.sendBytes < threshold {
 		return
 	}
