@@ -34,6 +34,7 @@ Version requirements:
 - **Clash Mi (Mihomo kernel)**: https://github.com/KaringX/clashmi (App Store: https://apps.apple.com/us/app/clash-mi/id6744321968)
 
 ### Desktop (Windows/macOS/Linux)
+- **Sudoku Desktop (official Sudoku desktop client)**: https://github.com/SUDOKU-ASCII/sudoku-desktop
 - **Any Mihomo-kernel GUI wrapper** (e.g. Clash Verge Rev): https://github.com/Clash-Verge-rev/clash-verge-rev
 
 ### Routers (OpenWrt)

@@ -31,6 +31,7 @@
 - **Clash Mi（Mihomo 内核）**：https://github.com/KaringX/clashmi （App Store： https://apps.apple.com/us/app/clash-mi/id6744321968 ）
 
 ### 桌面端（Windows/macOS/Linux）
+- **Sudoku Desktop（官方 Sudoku 桌面客户端）**：https://github.com/SUDOKU-ASCII/sudoku-desktop
 - **任意 Mihomo 内核的套壳 UI**（例如 Clash Verge Rev）：https://github.com/Clash-Verge-rev/clash-verge-rev
 
 ### 软路由（OpenWrt）
