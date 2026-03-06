@@ -34,17 +34,21 @@ import (
 	"github.com/saba-futai/sudoku/internal/protocol"
 	"github.com/saba-futai/sudoku/internal/tunnel"
 	"github.com/saba-futai/sudoku/pkg/connutil"
+	"github.com/saba-futai/sudoku/pkg/dnsutil"
 	"github.com/saba-futai/sudoku/pkg/geodata"
 	"github.com/saba-futai/sudoku/pkg/logx"
 	"github.com/saba-futai/sudoku/pkg/obfs/sudoku"
 )
+
+var networkInterfaces = net.Interfaces
+var interfaceAddrs = func(iface net.Interface) ([]net.Addr, error) { return iface.Addrs() }
 
 func writeSocks5Reply(w io.Writer, rep byte) {
 	// VER, REP, RSV, ATYP, BND.ADDR(IPv4=0.0.0.0), BND.PORT(0)
 	_, _ = w.Write([]byte{0x05, rep, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 }
 
-func handleClientSocks5(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoMgr *geodata.Manager, dialer tunnel.Dialer) {
+func handleClientSocks5(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoMgr *geodata.Manager, dialer tunnel.Dialer, resolver *dnsutil.Resolver) {
 	defer conn.Close()
 
 	buf := make([]byte, 262)
@@ -65,7 +69,7 @@ func handleClientSocks5(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoM
 	switch header[1] {
 	case 0x01: // CONNECT
 	case 0x03: // UDP ASSOCIATE
-		handleSocks5UDPAssociate(conn, cfg, geoMgr, dialer)
+		handleSocks5UDPAssociate(conn, cfg, geoMgr, dialer, resolver)
 		return
 	default:
 		writeSocks5Reply(conn, 0x07) // Command not supported
@@ -77,7 +81,7 @@ func handleClientSocks5(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoM
 		return
 	}
 
-	targetConn, success := dialTarget("TCP", conn.RemoteAddr(), destAddrStr, destIP, cfg, geoMgr, dialer)
+	targetConn, success := dialTarget("TCP", conn.RemoteAddr(), destAddrStr, destIP, cfg, geoMgr, dialer, resolver)
 	if !success {
 		writeSocks5Reply(conn, 0x04) // Host unreachable
 		return
@@ -87,7 +91,7 @@ func handleClientSocks5(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoM
 	connutil.PipeConn(conn, targetConn)
 }
 
-func handleSocks5UDPAssociate(ctrl net.Conn, cfg *config.Config, geoMgr *geodata.Manager, dialer tunnel.Dialer) {
+func handleSocks5UDPAssociate(ctrl net.Conn, cfg *config.Config, geoMgr *geodata.Manager, dialer tunnel.Dialer, resolver *dnsutil.Resolver) {
 	uotDialer, ok := dialer.(tunnel.UoTDialer)
 	if !ok {
 		writeSocks5Reply(ctrl, 0x07)
@@ -96,8 +100,9 @@ func handleSocks5UDPAssociate(ctrl net.Conn, cfg *config.Config, geoMgr *geodata
 
 	localIP := ipFromNetAddr(ctrl.LocalAddr())
 	remoteIP := ipFromNetAddr(ctrl.RemoteAddr())
+	replyIP := selectUDPAssociateAdvertiseIP(localIP, remoteIP)
 
-	udpConn, udpNet, err := listenUDPAssociate(localIP, remoteIP)
+	udpConn, udpNet, err := listenUDPAssociate(localIP, remoteIP, replyIP)
 	if err != nil {
 		writeSocks5Reply(ctrl, 0x01)
 		return
@@ -110,7 +115,6 @@ func handleSocks5UDPAssociate(ctrl net.Conn, cfg *config.Config, geoMgr *geodata
 		return
 	}
 
-	replyIP := selectUDPAssociateReplyIP(localIP, remoteIP)
 	reply := buildUDPAssociateReply(replyIP, udpConn.LocalAddr().(*net.UDPAddr).Port, localIP, remoteIP)
 	if err := connutil.WriteFull(ctrl, reply); err != nil {
 		_ = udpConn.Close()
@@ -119,7 +123,7 @@ func handleSocks5UDPAssociate(ctrl net.Conn, cfg *config.Config, geoMgr *geodata
 	}
 
 	logx.Infof("SOCKS5/UDP", "Associate ready on %s -> %s", udpConn.LocalAddr().String(), cfg.ServerAddress)
-	newUoTClientSession(ctrl, udpConn, uotConn, udpNet, cfg, geoMgr).run()
+	newUoTClientSession(ctrl, udpConn, uotConn, udpNet, cfg, geoMgr, resolver).run()
 }
 
 func buildUDPAssociateReply(host net.IP, port int, localIP net.IP, remoteIP net.IP) []byte {
@@ -207,7 +211,17 @@ func udpNetworkAndBindIP(localIP net.IP, remoteIP net.IP) (string, net.IP) {
 	return "udp", nil
 }
 
-func listenUDPAssociate(localIP net.IP, remoteIP net.IP) (*net.UDPConn, string, error) {
+func listenUDPAssociate(localIP net.IP, remoteIP net.IP, bindIP net.IP) (*net.UDPConn, string, error) {
+	bindIP = normalizeIP(bindIP)
+	if bindIP != nil && !bindIP.IsUnspecified() {
+		udpNet := "udp6"
+		if bindIP.To4() != nil {
+			udpNet = "udp4"
+		}
+		c, err := net.ListenUDP(udpNet, &net.UDPAddr{IP: bindIP, Port: 0})
+		return c, udpNet, err
+	}
+
 	// Prefer a dual-stack socket when possible (and safe), then fall back to a family-specific one.
 	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: nil, Port: 0})
 	if err == nil && udpConn != nil {
@@ -248,7 +262,9 @@ func selectUDPAssociateReplyIP(localIP net.IP, remoteIP net.IP) net.IP {
 		return nil
 	}
 	if localIP.IsLoopback() {
-		return localIP
+		// Prefer 0.0.0.0/:: for loopback-bound control sessions so clients reuse
+		// the TCP endpoint host instead of being pinned to 127.0.0.1.
+		return nil
 	}
 	if !localIP.IsGlobalUnicast() {
 		return nil
@@ -259,6 +275,62 @@ func selectUDPAssociateReplyIP(localIP net.IP, remoteIP net.IP) net.IP {
 	return localIP
 }
 
+func selectUDPAssociateAdvertiseIP(localIP net.IP, remoteIP net.IP) net.IP {
+	if ip := selectUDPAssociateReplyIP(localIP, remoteIP); ip != nil {
+		return ip
+	}
+	localIP = normalizeIP(localIP)
+	if localIP == nil || !localIP.IsLoopback() {
+		return nil
+	}
+	return firstGlobalUnicastIPv4()
+}
+
+func firstGlobalUnicastIPv4() net.IP {
+	ifaces, err := networkInterfaces()
+	if err != nil {
+		return nil
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		if iface.Flags&net.FlagPointToPoint != 0 {
+			continue
+		}
+		addrs, err := interfaceAddrs(iface)
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok || ipNet == nil || ipNet.IP == nil {
+				continue
+			}
+			ip := normalizeIP(ipNet.IP)
+			if ip == nil || ip.To4() == nil || ip.IsLoopback() || ip.IsUnspecified() {
+				continue
+			}
+			if !ip.IsGlobalUnicast() {
+				continue
+			}
+			return ip
+		}
+	}
+	return nil
+}
+
+func initialUDPAssociateClientIP(ip net.IP) net.IP {
+	ip = normalizeIP(ip)
+	if ip == nil || ip.IsUnspecified() || ip.IsLoopback() {
+		return nil
+	}
+	return ip
+}
+
 type uotClientSession struct {
 	ctrlConn net.Conn
 	udpConn  *net.UDPConn
@@ -266,6 +338,7 @@ type uotClientSession struct {
 	udpNet   string
 	cfg      *config.Config
 	geoMgr   *geodata.Manager
+	resolver *dnsutil.Resolver
 
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -280,7 +353,7 @@ type uotClientSession struct {
 	logOnce         ttlSet
 }
 
-func newUoTClientSession(ctrl net.Conn, udpConn *net.UDPConn, uotConn net.Conn, udpNet string, cfg *config.Config, geoMgr *geodata.Manager) *uotClientSession {
+func newUoTClientSession(ctrl net.Conn, udpConn *net.UDPConn, uotConn net.Conn, udpNet string, cfg *config.Config, geoMgr *geodata.Manager, resolver *dnsutil.Resolver) *uotClientSession {
 	return &uotClientSession{
 		ctrlConn:        ctrl,
 		udpConn:         udpConn,
@@ -288,8 +361,9 @@ func newUoTClientSession(ctrl net.Conn, udpConn *net.UDPConn, uotConn net.Conn, 
 		udpNet:          udpNet,
 		cfg:             cfg,
 		geoMgr:          geoMgr,
+		resolver:        resolver,
 		closed:          make(chan struct{}),
-		allowedClientIP: ipFromNetAddr(ctrl.RemoteAddr()),
+		allowedClientIP: initialUDPAssociateClientIP(ipFromNetAddr(ctrl.RemoteAddr())),
 		peerTTL:         2 * time.Minute,
 		peers:           newTTLSet(256),
 		logTTL:          30 * time.Second,
@@ -329,8 +403,9 @@ func (s *uotClientSession) pipeClientToServer() {
 			s.close()
 			return
 		}
+		srcIP := normalizeIP(addr.IP)
 
-		if addr != nil && s.allowedClientIP != nil && !s.allowedClientIP.Equal(normalizeIP(addr.IP)) {
+		if addr != nil && s.allowedClientIP != nil && !s.allowedClientIP.Equal(srcIP) {
 			if !s.peers.Has(peerKey(addr)) {
 				continue
 			}
@@ -351,14 +426,17 @@ func (s *uotClientSession) pipeClientToServer() {
 		if err != nil {
 			continue
 		}
+		if s.allowedClientIP == nil && srcIP != nil {
+			s.allowedClientIP = srcIP
+		}
 		s.setClientAddr(addr)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		decision := decideRoute(ctx, s.cfg, s.geoMgr, destAddr, destIP)
+		decision := decideRoute(ctx, s.cfg, s.geoMgr, destAddr, destIP, s.resolver)
 		shouldProxy, match, actionKey := decision.shouldProxy, decision.match, "PROXY"
 
 		if !shouldProxy {
-			directAddr, err := resolveUDPAddr(ctx, decision.directAddr)
+			directAddr, err := resolveUDPAddr(ctx, decision.directAddr, s.resolver)
 			if err != nil {
 				shouldProxy, match = true, match+"/RESOLVE_FAIL"
 			} else if directAddr != nil && directAddr.IP != nil && directAddr.IP.To4() == nil && s.udpNet == "udp4" {

@@ -33,6 +33,7 @@ import (
 	"github.com/saba-futai/sudoku/internal/tunnel"
 	"github.com/saba-futai/sudoku/pkg/connutil"
 	"github.com/saba-futai/sudoku/pkg/crypto"
+	"github.com/saba-futai/sudoku/pkg/dnsutil"
 	"github.com/saba-futai/sudoku/pkg/geodata"
 	"github.com/saba-futai/sudoku/pkg/logx"
 	"github.com/saba-futai/sudoku/pkg/obfs/sudoku"
@@ -103,6 +104,10 @@ func RunClient(cfg *config.Config, tables []*sudoku.Table) {
 			logx.Fatalf("Init", "Failed to build table(s): %v", err)
 		}
 	}
+	resolver, err := dnsutil.NewResolver(dnsutil.RecommendedClientOptions())
+	if err != nil {
+		logx.Fatalf("Init", "Failed to build DNS resolver: %v", err)
+	}
 
 	baseDialer := tunnel.BaseDialer{
 		Config:     cfg,
@@ -161,11 +166,11 @@ func RunClient(cfg *config.Config, tables []*sudoku.Table) {
 				continue
 			}
 		}
-		go handleMixedConn(c, cfg, primaryTable, geoMgr, dialer)
+		go handleMixedConn(c, cfg, primaryTable, geoMgr, dialer, resolver)
 	}
 }
 
-func handleMixedConn(c net.Conn, cfg *config.Config, table *sudoku.Table, geoMgr *geodata.Manager, dialer tunnel.Dialer) {
+func handleMixedConn(c net.Conn, cfg *config.Config, table *sudoku.Table, geoMgr *geodata.Manager, dialer tunnel.Dialer, resolver *dnsutil.Resolver) {
 	buf := make([]byte, 1)
 	if _, err := io.ReadFull(c, buf); err != nil {
 		c.Close()
@@ -176,10 +181,10 @@ func handleMixedConn(c net.Conn, cfg *config.Config, table *sudoku.Table, geoMgr
 
 	switch buf[0] {
 	case 0x05:
-		handleClientSocks5(pConn, cfg, table, geoMgr, dialer)
+		handleClientSocks5(pConn, cfg, table, geoMgr, dialer, resolver)
 	case 0x04:
-		handleClientSocks4(pConn, cfg, table, geoMgr, dialer)
+		handleClientSocks4(pConn, cfg, table, geoMgr, dialer, resolver)
 	default:
-		handleHTTP(pConn, cfg, table, geoMgr, dialer)
+		handleHTTP(pConn, cfg, table, geoMgr, dialer, resolver)
 	}
 }

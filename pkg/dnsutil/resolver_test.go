@@ -70,8 +70,8 @@ func TestResolve_CacheHitAvoidsDNS(t *testing.T) {
 		t.Fatalf("cache mismatch: %s vs %s", addr1, addr2)
 	}
 
-	if calls.Load() < 2 {
-		t.Fatalf("expected concurrent DNS calls, got %d", calls.Load())
+	if calls.Load() != 1 {
+		t.Fatalf("expected a single IPv4 lookup, got %d", calls.Load())
 	}
 }
 
@@ -133,11 +133,9 @@ func TestResolve_InvalidAddress(t *testing.T) {
 	}
 }
 
-func TestLookupIPs_PrefersIPv4First(t *testing.T) {
+func TestLookupIPs_IPv4Only(t *testing.T) {
 	lookup := func(ctx context.Context, network, host string) ([]net.IP, error) {
 		switch network {
-		case "ip6":
-			return []net.IP{net.ParseIP("2001:db8::1")}, nil
 		case "ip4":
 			return []net.IP{net.ParseIP("1.2.3.4")}, nil
 		default:
@@ -150,10 +148,32 @@ func TestLookupIPs_PrefersIPv4First(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lookup failed: %v", err)
 	}
-	if len(ips) < 2 {
-		t.Fatalf("expected both v4+v6, got %v", ips)
+	if len(ips) != 1 {
+		t.Fatalf("expected only IPv4 results, got %v", ips)
 	}
 	if ips[0].To4() == nil {
-		t.Fatalf("expected IPv4 first, got %v", ips[0])
+		t.Fatalf("expected IPv4 result, got %v", ips[0])
+	}
+}
+
+func TestResolver_FiltersBogusBenchIPs(t *testing.T) {
+	r := newResolver(1*time.Minute, func(ctx context.Context, network, host string) ([]net.IP, error) {
+		return []net.IP{
+			net.ParseIP("198.18.0.1"),
+			net.ParseIP("1.2.3.4"),
+		}, nil
+	})
+	_, benchNet, err := net.ParseCIDR("198.18.0.0/15")
+	if err != nil {
+		t.Fatalf("parse cidr: %v", err)
+	}
+	r.bogusNets = []*net.IPNet{benchNet}
+
+	ips, err := r.LookupIPs(context.Background(), "example.com")
+	if err != nil {
+		t.Fatalf("lookup failed: %v", err)
+	}
+	if len(ips) != 1 || ips[0].String() != "1.2.3.4" {
+		t.Fatalf("unexpected filtered ips: %v", ips)
 	}
 }

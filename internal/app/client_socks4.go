@@ -28,11 +28,12 @@ import (
 	"github.com/saba-futai/sudoku/internal/config"
 	"github.com/saba-futai/sudoku/internal/tunnel"
 	"github.com/saba-futai/sudoku/pkg/connutil"
+	"github.com/saba-futai/sudoku/pkg/dnsutil"
 	"github.com/saba-futai/sudoku/pkg/geodata"
 	"github.com/saba-futai/sudoku/pkg/obfs/sudoku"
 )
 
-func handleClientSocks4(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoMgr *geodata.Manager, dialer tunnel.Dialer) {
+func handleClientSocks4(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoMgr *geodata.Manager, dialer tunnel.Dialer, resolver *dnsutil.Resolver) {
 	defer conn.Close()
 
 	buf := make([]byte, 8)
@@ -66,7 +67,7 @@ func handleClientSocks4(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoM
 		destAddrStr = fmt.Sprintf("%s:%d", destIP.String(), port)
 	}
 
-	targetConn, success := dialTarget("TCP", conn.RemoteAddr(), destAddrStr, destIP, cfg, geoMgr, dialer)
+	targetConn, success := dialTarget("TCP", conn.RemoteAddr(), destAddrStr, destIP, cfg, geoMgr, dialer, resolver)
 	if !success {
 		_, _ = conn.Write([]byte{0x00, 0x5B, 0, 0, 0, 0, 0, 0})
 		return

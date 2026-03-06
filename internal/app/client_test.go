@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/saba-futai/sudoku/internal/config"
+	"github.com/saba-futai/sudoku/pkg/dnsutil"
 	"github.com/saba-futai/sudoku/pkg/geodata"
 	"github.com/saba-futai/sudoku/pkg/obfs/sudoku"
 )
@@ -96,7 +97,7 @@ func TestDialTarget_PACAcceptsAnyMatchingIP(t *testing.T) {
 		directDial = oldDirectDial
 	})
 
-	lookupIPsWithCache = func(ctx context.Context, host string) ([]net.IP, error) {
+	lookupIPsWithCache = func(ctx context.Context, resolver *dnsutil.Resolver, host string) ([]net.IP, error) {
 		return []net.IP{
 			net.ParseIP("2001:db8::1"),
 			net.ParseIP("1.2.3.4"),
@@ -117,7 +118,7 @@ func TestDialTarget_PACAcceptsAnyMatchingIP(t *testing.T) {
 		},
 	}
 
-	_, ok := dialTarget("TCP", nil, "foo.example:443", nil, cfg, geoMgr, dialer)
+	_, ok := dialTarget("TCP", nil, "foo.example:443", nil, cfg, geoMgr, dialer, nil)
 	if !ok {
 		t.Fatalf("expected direct dial success")
 	}
@@ -150,7 +151,7 @@ func TestHandleMixedConn_SOCKS4(t *testing.T) {
 		},
 	}
 
-	handleMixedConn(conn, cfg, table, nil, dialer)
+	handleMixedConn(conn, cfg, table, nil, dialer, nil)
 
 	// Verify Target
 	expectedTarget := "1.2.3.4:80"
@@ -185,7 +186,7 @@ func TestHandleMixedConn_SOCKS5(t *testing.T) {
 		},
 	}
 
-	handleMixedConn(conn, cfg, table, nil, dialer)
+	handleMixedConn(conn, cfg, table, nil, dialer, nil)
 
 	expectedTarget := "1.2.3.4:80"
 	if target != expectedTarget {
@@ -207,7 +208,7 @@ func TestHandleMixedConn_HTTP(t *testing.T) {
 		},
 	}
 
-	handleMixedConn(conn, cfg, table, nil, dialer)
+	handleMixedConn(conn, cfg, table, nil, dialer, nil)
 
 	expectedTarget := "example.com:443"
 	if target != expectedTarget {
@@ -229,10 +230,113 @@ func TestHandleMixedConn_HTTPIPv6HostNoPort(t *testing.T) {
 		},
 	}
 
-	handleMixedConn(conn, cfg, table, nil, dialer)
+	handleMixedConn(conn, cfg, table, nil, dialer, nil)
 
 	expectedTarget := "[2001:db8::1]:443"
 	if target != expectedTarget {
 		t.Errorf("HTTP IPv6 target mismatch: got %q, want %q", target, expectedTarget)
+	}
+}
+
+func TestSelectUDPAssociateReplyIP_LoopbackPolicy(t *testing.T) {
+	tests := []struct {
+		name     string
+		localIP  net.IP
+		remoteIP net.IP
+		want     string
+	}{
+		{
+			name:     "drops loopback for loopback peers",
+			localIP:  net.ParseIP("127.0.0.1"),
+			remoteIP: net.ParseIP("127.0.0.1"),
+			want:     "",
+		},
+		{
+			name:     "drops loopback for non-loopback peers",
+			localIP:  net.ParseIP("127.0.0.1"),
+			remoteIP: net.ParseIP("172.19.0.2"),
+			want:     "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := selectUDPAssociateReplyIP(tc.localIP, tc.remoteIP)
+			if tc.want == "" {
+				if got != nil {
+					t.Fatalf("expected nil reply ip, got %v", got)
+				}
+				return
+			}
+			if got == nil || got.String() != tc.want {
+				t.Fatalf("unexpected reply ip: got %v want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInitialUDPAssociateClientIP(t *testing.T) {
+	tests := []struct {
+		name string
+		ip   net.IP
+		want string
+	}{
+		{name: "nil stays nil", ip: nil, want: ""},
+		{name: "loopback becomes nil", ip: net.ParseIP("127.0.0.1"), want: ""},
+		{name: "private ipv4 is kept", ip: net.ParseIP("172.19.0.2"), want: "172.19.0.2"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := initialUDPAssociateClientIP(tc.ip)
+			if tc.want == "" {
+				if got != nil {
+					t.Fatalf("expected nil, got %v", got)
+				}
+				return
+			}
+			if got == nil || got.String() != tc.want {
+				t.Fatalf("unexpected client ip: got %v want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSelectUDPAssociateAdvertiseIP_UsesNonLoopbackFallback(t *testing.T) {
+	oldNetworkInterfaces := networkInterfaces
+	oldInterfaceAddrs := interfaceAddrs
+	networkInterfaces = func() ([]net.Interface, error) {
+		return []net.Interface{
+			{Index: 1, Flags: net.FlagUp | net.FlagLoopback},
+			{Index: 2, Flags: net.FlagUp | net.FlagPointToPoint},
+			{Index: 3, Flags: net.FlagUp | net.FlagBroadcast},
+		}, nil
+	}
+	interfaceAddrs = func(iface net.Interface) ([]net.Addr, error) {
+		switch iface.Index {
+		case 1:
+			return []net.Addr{
+				&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)},
+			}, nil
+		case 2:
+			return []net.Addr{
+				&net.IPNet{IP: net.ParseIP("172.19.0.2"), Mask: net.CIDRMask(16, 32)},
+			}, nil
+		case 3:
+			return []net.Addr{
+				&net.IPNet{IP: net.ParseIP("10.0.0.148"), Mask: net.CIDRMask(24, 32)},
+			}, nil
+		default:
+			return nil, nil
+		}
+	}
+	t.Cleanup(func() {
+		networkInterfaces = oldNetworkInterfaces
+		interfaceAddrs = oldInterfaceAddrs
+	})
+
+	got := selectUDPAssociateAdvertiseIP(net.ParseIP("127.0.0.1"), net.ParseIP("127.0.0.1"))
+	if got == nil || got.String() != "10.0.0.148" {
+		t.Fatalf("unexpected advertise ip: got %v want 10.0.0.148", got)
 	}
 }

@@ -28,11 +28,12 @@ import (
 	"github.com/saba-futai/sudoku/internal/config"
 	"github.com/saba-futai/sudoku/internal/tunnel"
 	"github.com/saba-futai/sudoku/pkg/connutil"
+	"github.com/saba-futai/sudoku/pkg/dnsutil"
 	"github.com/saba-futai/sudoku/pkg/geodata"
 	"github.com/saba-futai/sudoku/pkg/obfs/sudoku"
 )
 
-func handleHTTP(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoMgr *geodata.Manager, dialer tunnel.Dialer) {
+func handleHTTP(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoMgr *geodata.Manager, dialer tunnel.Dialer, resolver *dnsutil.Resolver) {
 	defer conn.Close()
 
 	req, err := http.ReadRequest(bufio.NewReader(conn))
@@ -43,7 +44,7 @@ func handleHTTP(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoMgr *geod
 	host := ensureHostPort(req.Host, req.Method)
 	destIP := net.ParseIP(hostOnly(host))
 
-	targetConn, success := dialTarget("TCP", conn.RemoteAddr(), host, destIP, cfg, geoMgr, dialer)
+	targetConn, success := dialTarget("TCP", conn.RemoteAddr(), host, destIP, cfg, geoMgr, dialer, resolver)
 	if !success {
 		_, _ = conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 		return
@@ -66,7 +67,7 @@ func handleHTTP(conn net.Conn, cfg *config.Config, _ *sudoku.Table, geoMgr *geod
 
 		retryable := req.Body == nil || req.Body == http.NoBody
 		if retryable && req.ContentLength <= 0 {
-			if targetConn2, ok := dialTarget("TCP", conn.RemoteAddr(), host, destIP, cfg, geoMgr, dialer); ok {
+			if targetConn2, ok := dialTarget("TCP", conn.RemoteAddr(), host, destIP, cfg, geoMgr, dialer, resolver); ok {
 				if err2 := req.Write(targetConn2); err2 == nil {
 					connutil.PipeConn(conn, targetConn2)
 					return

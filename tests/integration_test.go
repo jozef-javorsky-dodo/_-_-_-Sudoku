@@ -94,26 +94,41 @@ func getFreePorts(count int) ([]int, error) {
 }
 
 func pickNonLoopbackIPv4() net.IP {
-	addrs, err := net.InterfaceAddrs()
+	ifaces, err := net.Interfaces()
 	if err != nil {
 		return nil
 	}
-	for _, addr := range addrs {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok || ipNet.IP == nil {
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
 			continue
 		}
-		ip := ipNet.IP.To4()
-		if ip == nil {
+		if iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
-		if ip.IsLoopback() || ip.IsUnspecified() {
+		if iface.Flags&net.FlagPointToPoint != 0 {
 			continue
 		}
-		if !ip.IsGlobalUnicast() {
+		addrs, err := iface.Addrs()
+		if err != nil {
 			continue
 		}
-		return ip
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok || ipNet.IP == nil {
+				continue
+			}
+			ip := ipNet.IP.To4()
+			if ip == nil {
+				continue
+			}
+			if ip.IsLoopback() || ip.IsUnspecified() {
+				continue
+			}
+			if !ip.IsGlobalUnicast() {
+				continue
+			}
+			return ip
+		}
 	}
 	return nil
 }

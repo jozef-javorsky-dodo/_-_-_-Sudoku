@@ -7,6 +7,7 @@ require (
 	github.com/charmbracelet/huh v0.8.0
 	github.com/coder/websocket v1.8.14
 	golang.org/x/crypto v0.48.0
+	golang.org/x/net v0.51.0
 	golang.org/x/term v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
 )

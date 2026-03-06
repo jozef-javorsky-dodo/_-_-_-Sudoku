@@ -115,7 +115,6 @@ Example (CDN/proxy friendly mode):
   - `"off"`: do not reuse connections
   - `"auto"`: reuse HTTP connections when possible (keep-alive / HTTP/2)
   - `"on"`: enable a single-tunnel multi-target mux (lower RTT for many connections)
-
 ### Reverse proxy (expose client services)
 Reverse proxy settings live under the `reverse` object.
 

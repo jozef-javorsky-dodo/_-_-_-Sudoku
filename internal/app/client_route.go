@@ -31,7 +31,19 @@ import (
 	"github.com/saba-futai/sudoku/pkg/logx"
 )
 
-var lookupIPsWithCache = dnsutil.LookupIPsWithCache
+var lookupIPsWithCache = func(ctx context.Context, resolver *dnsutil.Resolver, host string) ([]net.IP, error) {
+	if resolver != nil {
+		return resolver.LookupIPs(ctx, host)
+	}
+	return dnsutil.LookupIPsWithCache(ctx, host)
+}
+
+var resolveWithCache = func(ctx context.Context, resolver *dnsutil.Resolver, addr string) (string, error) {
+	if resolver != nil {
+		return resolver.Resolve(ctx, addr)
+	}
+	return dnsutil.ResolveWithCache(ctx, addr)
+}
 
 type routeDecision struct {
 	shouldProxy bool
@@ -39,7 +51,7 @@ type routeDecision struct {
 	directAddr  string
 }
 
-func decideRoute(ctx context.Context, cfg *config.Config, geoMgr *geodata.Manager, destAddr string, destIP net.IP) routeDecision {
+func decideRoute(ctx context.Context, cfg *config.Config, geoMgr *geodata.Manager, destAddr string, destIP net.IP, resolver *dnsutil.Resolver) routeDecision {
 	decision := routeDecision{shouldProxy: true, match: "MODE(global)", directAddr: destAddr}
 	if cfg == nil {
 		decision.match = "CFG(nil)"
@@ -74,7 +86,7 @@ func decideRoute(ctx context.Context, cfg *config.Config, geoMgr *geodata.Manage
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		ips, err := lookupIPsWithCache(ctx, host)
+		ips, err := lookupIPsWithCache(ctx, resolver, host)
 		if err != nil || len(ips) == 0 {
 			decision.match = "PAC/DNS_FAIL"
 			return decision
@@ -114,7 +126,7 @@ func logRoute(network string, src net.Addr, destAddr string, match string, shoul
 	logx.Infof(strings.ToUpper(strings.TrimSpace(network)), "%s --> %s match %s using %s", srcStr, destAddr, logx.Yellow(match), actionText)
 }
 
-func resolveUDPAddr(ctx context.Context, addr string) (*net.UDPAddr, error) {
+func resolveUDPAddr(ctx context.Context, addr string, resolver *dnsutil.Resolver) (*net.UDPAddr, error) {
 	addr = strings.TrimSpace(addr)
 	if addr == "" {
 		return nil, fmt.Errorf("empty address")
@@ -122,7 +134,7 @@ func resolveUDPAddr(ctx context.Context, addr string) (*net.UDPAddr, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	resolved, err := dnsutil.ResolveWithCache(ctx, addr)
+	resolved, err := resolveWithCache(ctx, resolver, addr)
 	if err != nil {
 		return nil, err
 	}

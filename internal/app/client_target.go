@@ -27,6 +27,7 @@ import (
 
 	"github.com/saba-futai/sudoku/internal/config"
 	"github.com/saba-futai/sudoku/internal/tunnel"
+	"github.com/saba-futai/sudoku/pkg/dnsutil"
 	"github.com/saba-futai/sudoku/pkg/geodata"
 	"github.com/saba-futai/sudoku/pkg/logx"
 )
@@ -35,9 +36,9 @@ var directDial = func(network, addr string, timeout time.Duration) (net.Conn, er
 	return net.DialTimeout(network, addr, timeout)
 }
 
-func dialTarget(network string, src net.Addr, destAddrStr string, destIP net.IP, cfg *config.Config, geoMgr *geodata.Manager, dialer tunnel.Dialer) (net.Conn, bool) {
+func dialTarget(network string, src net.Addr, destAddrStr string, destIP net.IP, cfg *config.Config, geoMgr *geodata.Manager, dialer tunnel.Dialer, resolver *dnsutil.Resolver) (net.Conn, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	decision := decideRoute(ctx, cfg, geoMgr, destAddrStr, destIP)
+	decision := decideRoute(ctx, cfg, geoMgr, destAddrStr, destIP, resolver)
 	cancel()
 
 	logRoute(network, src, destAddrStr, decision.match, decision.shouldProxy)
@@ -55,9 +56,15 @@ func dialTarget(network string, src net.Addr, destAddrStr string, destIP net.IP,
 	if directAddr == "" {
 		directAddr = destAddrStr
 	}
+	if resolvedAddr, err := resolveDirectAddr(resolver, directAddr); err == nil && strings.TrimSpace(resolvedAddr) != "" {
+		directAddr = resolvedAddr
+	}
 
 	dConn, err := directDial("tcp", directAddr, 5*time.Second)
 	if err != nil && strings.TrimSpace(destAddrStr) != "" && directAddr != destAddrStr {
+		if resolvedDest, rerr := resolveDirectAddr(resolver, destAddrStr); rerr == nil && strings.TrimSpace(resolvedDest) != "" {
+			destAddrStr = resolvedDest
+		}
 		dConn, err = directDial("tcp", destAddrStr, 5*time.Second)
 	}
 	if err != nil {
@@ -65,4 +72,21 @@ func dialTarget(network string, src net.Addr, destAddrStr string, destIP net.IP,
 		return nil, false
 	}
 	return dConn, true
+}
+
+func resolveDirectAddr(resolver *dnsutil.Resolver, addr string) (string, error) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return "", nil
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", err
+	}
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		return addr, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return resolveWithCache(ctx, resolver, addr)
 }
