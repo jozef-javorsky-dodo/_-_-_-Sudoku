@@ -20,10 +20,10 @@ with this application without prior consent.
 package tests
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"testing"
-	"time"
 
 	"github.com/saba-futai/sudoku/internal/config"
 	"golang.org/x/crypto/ssh"
@@ -76,31 +76,19 @@ func TestReverseProxy_TCP_DefaultRoute(t *testing.T) {
 		},
 	}
 	startSudokuClient(t, clientCfg)
-
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		c, err := net.DialTimeout("tcp", reverseListen, 200*time.Millisecond)
-		if err != nil {
-			time.Sleep(50 * time.Millisecond)
-			continue
-		}
-
-		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
-		if _, err := c.Write([]byte("ping")); err != nil {
-			_ = c.Close()
-			time.Sleep(50 * time.Millisecond)
-			continue
+	waitForReverseTCPRouteReady(t, reverseListen, func(conn net.Conn) error {
+		if _, err := conn.Write([]byte("ping")); err != nil {
+			return err
 		}
 		buf := make([]byte, 4)
-		_, err = io.ReadFull(c, buf)
-		_ = c.Close()
-		if err == nil && string(buf) == "ping" {
-			return
+		if _, err := io.ReadFull(conn, buf); err != nil {
+			return err
 		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	t.Fatalf("reverse tcp proxy did not become ready")
+		if string(buf) != "ping" {
+			return fmt.Errorf("unexpected echo: %q", string(buf))
+		}
+		return nil
+	})
 }
 
 func TestReverseProxy_TCP_DefaultRoute_SSH(t *testing.T) {
@@ -134,38 +122,33 @@ func TestReverseProxy_TCP_DefaultRoute_SSH(t *testing.T) {
 	}
 	startSudokuClient(t, clientCfg)
 
-	rawConn, err := net.DialTimeout("tcp", reverseListen, 5*time.Second)
-	if err != nil {
-		t.Fatalf("tcp dial: %v", err)
-	}
-	_ = rawConn.SetDeadline(time.Now().Add(10 * time.Second))
-
 	sshCfg := &ssh.ClientConfig{
 		User:            "u",
 		Auth:            []ssh.AuthMethod{ssh.Password("p")},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
-	cconn, chans, reqs, err := ssh.NewClientConn(rawConn, reverseListen, sshCfg)
-	if err != nil {
-		_ = rawConn.Close()
-		t.Fatalf("ssh handshake: %v", err)
-	}
-	_ = rawConn.SetDeadline(time.Time{})
+	waitForReverseTCPRouteReady(t, reverseListen, func(conn net.Conn) error {
+		cconn, chans, reqs, err := ssh.NewClientConn(conn, reverseListen, sshCfg)
+		if err != nil {
+			return err
+		}
 
-	client := ssh.NewClient(cconn, chans, reqs)
-	defer client.Close()
+		client := ssh.NewClient(cconn, chans, reqs)
+		defer client.Close()
 
-	sess, err := client.NewSession()
-	if err != nil {
-		t.Fatalf("ssh session: %v", err)
-	}
-	defer sess.Close()
+		sess, err := client.NewSession()
+		if err != nil {
+			return err
+		}
+		defer sess.Close()
 
-	out, err := sess.CombinedOutput("echo hello")
-	if err != nil {
-		t.Fatalf("ssh exec: %v (out=%q)", err, string(out))
-	}
-	if string(out) != "echo hello" {
-		t.Fatalf("unexpected output: %q", string(out))
-	}
+		out, err := sess.CombinedOutput("echo hello")
+		if err != nil {
+			return fmt.Errorf("ssh exec: %w (out=%q)", err, string(out))
+		}
+		if string(out) != "echo hello" {
+			return fmt.Errorf("unexpected output: %q", string(out))
+		}
+		return nil
+	})
 }

@@ -21,6 +21,7 @@ package tests
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -114,6 +115,36 @@ func waitForReverseRouteReady(t testing.TB, reverseListen, prefix string) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("reverse route not ready: %s", prefix)
+}
+
+func waitForReverseTCPRouteReady(t testing.TB, reverseListen string, probe func(net.Conn) error) {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", reverseListen, 250*time.Millisecond)
+		if err != nil {
+			lastErr = err
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
+		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+		err = probe(conn)
+		_ = conn.Close()
+		if err == nil {
+			return
+		}
+
+		lastErr = err
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if lastErr != nil {
+		t.Fatalf("reverse tcp route not ready: %s: %v", reverseListen, lastErr)
+	}
+	t.Fatalf("reverse tcp route not ready: %s", reverseListen)
 }
 
 func cookieHeaderValue(cookies []*http.Cookie) string {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"testing"
 	"time"
 
@@ -143,21 +144,72 @@ func TestHTTPMaskRTTParity(t *testing.T) {
 			offClient.ServerAddress = offProxyAddr
 			offClient.TargetAddress = echoAddr
 
-			enabledDur, err := measureFirstEchoRTT(context.Background(), &onClient)
-			if err != nil {
-				t.Fatalf("measure httpmask rtt: %v", err)
-			}
-			baselineDur, err := measureFirstEchoRTT(context.Background(), &offClient)
-			if err != nil {
-				t.Fatalf("measure baseline rtt: %v", err)
+			const warmupRuns = 1
+			for i := 0; i < warmupRuns; i++ {
+				if _, err := measureFirstEchoRTT(context.Background(), &onClient); err != nil {
+					t.Fatalf("warm up httpmask rtt: %v", err)
+				}
+				if _, err := measureFirstEchoRTT(context.Background(), &offClient); err != nil {
+					t.Fatalf("warm up baseline rtt: %v", err)
+				}
 			}
 
+			const sampleRuns = 3
+			enabledSamples := make([]time.Duration, 0, sampleRuns)
+			baselineSamples := make([]time.Duration, 0, sampleRuns)
+			for i := 0; i < sampleRuns; i++ {
+				if i%2 == 0 {
+					enabledDur, err := measureFirstEchoRTT(context.Background(), &onClient)
+					if err != nil {
+						t.Fatalf("measure httpmask rtt: %v", err)
+					}
+					enabledSamples = append(enabledSamples, enabledDur)
+
+					baselineDur, err := measureFirstEchoRTT(context.Background(), &offClient)
+					if err != nil {
+						t.Fatalf("measure baseline rtt: %v", err)
+					}
+					baselineSamples = append(baselineSamples, baselineDur)
+					continue
+				}
+
+				baselineDur, err := measureFirstEchoRTT(context.Background(), &offClient)
+				if err != nil {
+					t.Fatalf("measure baseline rtt: %v", err)
+				}
+				baselineSamples = append(baselineSamples, baselineDur)
+
+				enabledDur, err := measureFirstEchoRTT(context.Background(), &onClient)
+				if err != nil {
+					t.Fatalf("measure httpmask rtt: %v", err)
+				}
+				enabledSamples = append(enabledSamples, enabledDur)
+			}
+
+			enabledDur := medianDuration(enabledSamples)
+			baselineDur := medianDuration(baselineSamples)
 			const tolerance = 35 * time.Millisecond
 			if enabledDur > baselineDur+tolerance {
-				t.Fatalf("httpmask RTT mismatch: enabled=%v baseline=%v tolerance=%v", enabledDur, baselineDur, tolerance)
+				t.Fatalf(
+					"httpmask RTT mismatch: enabled=%v baseline=%v tolerance=%v enabled_samples=%v baseline_samples=%v",
+					enabledDur,
+					baselineDur,
+					tolerance,
+					enabledSamples,
+					baselineSamples,
+				)
 			}
 		})
 	}
+}
+
+func medianDuration(samples []time.Duration) time.Duration {
+	if len(samples) == 0 {
+		return 0
+	}
+	ordered := slices.Clone(samples)
+	slices.Sort(ordered)
+	return ordered[len(ordered)/2]
 }
 
 func measureFirstEchoRTT(ctx context.Context, cfg *apis.ProtocolConfig) (time.Duration, error) {
