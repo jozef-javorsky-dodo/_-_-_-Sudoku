@@ -161,33 +161,6 @@ func (d *BaseDialer) dialTarget(destAddrStr string) (net.Conn, error) {
 	if strings.TrimSpace(destAddrStr) == "" {
 		return nil, fmt.Errorf("empty target address")
 	}
-
-	if d.Config.HTTPMaskTunnelEnabled() {
-		dialCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		table, err := d.pickTable()
-		if err != nil {
-			return nil, err
-		}
-
-		conn, err := d.dialHTTPMaskTunnel(dialCtx, table, func(raw net.Conn) (net.Conn, error) {
-			cConn, err := ClientHandshake(raw, d.Config, table, d.PrivateKey)
-			if err != nil {
-				return nil, err
-			}
-			if err := writeKIPOpenTCP(cConn, destAddrStr); err != nil {
-				_ = cConn.Close()
-				return nil, fmt.Errorf("write address failed: %w", err)
-			}
-			return cConn, nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("dial http tunnel failed: %w", err)
-		}
-		return conn, nil
-	}
-
 	cConn, err := d.dialBase()
 	if err != nil {
 		return nil, err
