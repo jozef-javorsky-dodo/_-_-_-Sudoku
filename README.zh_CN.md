@@ -20,8 +20,8 @@
 ## 客户端支持
 
 版本要求：
-- 基于 Mihomo 内核的客户端：**Mihomo > v1.19.20**
-- 官方安卓客户端 Sudodroid：**Sudodroid >= v0.2.0**
+- 基于 Mihomo 内核的客户端：**Mihomo > v1.19.21**
+- 官方安卓客户端 Sudodroid：**Sudodroid >= v0.2.4**
 
 ### Android
 - **CMFA（Clash Meta for Android / Mihomo 内核）**：https://github.com/MetaCubeX/ClashMetaForAndroid

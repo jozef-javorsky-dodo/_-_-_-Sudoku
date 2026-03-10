@@ -24,7 +24,7 @@ The core philosophy of this project is to utilize the mathematical properties of
 
 Version requirements:
 - Mihomo-based clients: **Mihomo > v1.19.21** 
-- Official Android client Sudodroid: **Sudodroid >= v0.2.0**
+- Official Android client Sudodroid: **Sudodroid >= v0.2.4**
 
 ### Android
 - **CMFA (Clash Meta for Android / Mihomo kernel)**: https://github.com/MetaCubeX/ClashMetaForAndroid
