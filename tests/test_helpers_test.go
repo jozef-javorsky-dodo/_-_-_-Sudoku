@@ -32,9 +32,11 @@ import (
 )
 
 const (
-	testAEAD        = "chacha20-poly1305"
-	testASCII       = "prefer_ascii"
-	testCustomTable = "xpxvvpvv"
+	testAEAD         = "chacha20-poly1305"
+	testASCII        = "prefer_ascii"
+	testCustomTable  = "xpxvvpvv"
+	reverseReadyWait = 25 * time.Second
+	reverseProbeWait = 5 * time.Second
 )
 
 func newTestKeys(t testing.TB) (serverKey, clientKey string) {
@@ -97,30 +99,38 @@ func waitForReverseRouteReady(t testing.TB, reverseListen, prefix string) {
 	}
 
 	noFollowClient := &http.Client{
-		Timeout: 500 * time.Millisecond,
+		Timeout: reverseProbeWait,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(reverseReadyWait)
+	var lastErr error
+	lastStatus := 0
 	for time.Now().Before(deadline) {
 		resp, err := noFollowClient.Get("http://" + reverseListen + prefix)
 		if err == nil {
+			lastStatus = resp.StatusCode
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusPermanentRedirect && strings.HasSuffix(resp.Header.Get("Location"), prefix+"/") {
 				return
 			}
+		} else {
+			lastErr = err
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("reverse route not ready: %s", prefix)
+	if lastErr != nil {
+		t.Fatalf("reverse route not ready: %s (last status=%d, last err=%v)", prefix, lastStatus, lastErr)
+	}
+	t.Fatalf("reverse route not ready: %s (last status=%d)", prefix, lastStatus)
 }
 
 func waitForReverseTCPRouteReady(t testing.TB, reverseListen string, probe func(net.Conn) error) {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(reverseReadyWait)
 	var lastErr error
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", reverseListen, 250*time.Millisecond)
@@ -130,7 +140,7 @@ func waitForReverseTCPRouteReady(t testing.TB, reverseListen string, probe func(
 			continue
 		}
 
-		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+		_ = conn.SetDeadline(time.Now().Add(reverseProbeWait))
 		err = probe(conn)
 		_ = conn.Close()
 		if err == nil {

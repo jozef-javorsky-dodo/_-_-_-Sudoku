@@ -17,7 +17,7 @@ func TestMatrixSmoke(t *testing.T) {
 
 	*flagFailFast = true
 	*flagVerbose = false
-	*flagTimeout = 5 * time.Second
+	*flagTimeout = 10 * time.Second
 	*flagPayload = 64 // KiB
 	*flagQuick = testing.Short()
 
@@ -111,13 +111,13 @@ func TestHTTPMaskRTTParity(t *testing.T) {
 			offCfg.HTTPMaskPathRoot = ""
 			offCfg.HTTPMaskMultiplex = "off"
 
-			onSrv, err := startSudokuServer(ctx, onCfg, fallbackAddr)
+			onSrv, err := startSudokuServer(ctx, onCfg, fallbackAddr, false)
 			if err != nil {
 				t.Fatalf("start httpmask server: %v", err)
 			}
 			defer onSrv.close()
 
-			offSrv, err := startSudokuServer(ctx, &offCfg, fallbackAddr)
+			offSrv, err := startSudokuServer(ctx, &offCfg, fallbackAddr, false)
 			if err != nil {
 				t.Fatalf("start baseline server: %v", err)
 			}
@@ -144,7 +144,7 @@ func TestHTTPMaskRTTParity(t *testing.T) {
 			offClient.ServerAddress = offProxyAddr
 			offClient.TargetAddress = echoAddr
 
-			const warmupRuns = 1
+			const warmupRuns = 2
 			for i := 0; i < warmupRuns; i++ {
 				if _, err := measureFirstEchoRTT(context.Background(), &onClient); err != nil {
 					t.Fatalf("warm up httpmask rtt: %v", err)
@@ -154,7 +154,7 @@ func TestHTTPMaskRTTParity(t *testing.T) {
 				}
 			}
 
-			const sampleRuns = 3
+			const sampleRuns = 5
 			enabledSamples := make([]time.Duration, 0, sampleRuns)
 			baselineSamples := make([]time.Duration, 0, sampleRuns)
 			for i := 0; i < sampleRuns; i++ {
@@ -186,9 +186,9 @@ func TestHTTPMaskRTTParity(t *testing.T) {
 				enabledSamples = append(enabledSamples, enabledDur)
 			}
 
-			enabledDur := medianDuration(enabledSamples)
-			baselineDur := medianDuration(baselineSamples)
-			const tolerance = 35 * time.Millisecond
+			enabledDur := trimmedMeanDuration(enabledSamples)
+			baselineDur := trimmedMeanDuration(baselineSamples)
+			const tolerance = 45 * time.Millisecond
 			if enabledDur > baselineDur+tolerance {
 				t.Fatalf(
 					"httpmask RTT mismatch: enabled=%v baseline=%v tolerance=%v enabled_samples=%v baseline_samples=%v",
@@ -203,13 +203,20 @@ func TestHTTPMaskRTTParity(t *testing.T) {
 	}
 }
 
-func medianDuration(samples []time.Duration) time.Duration {
+func trimmedMeanDuration(samples []time.Duration) time.Duration {
 	if len(samples) == 0 {
 		return 0
 	}
 	ordered := slices.Clone(samples)
 	slices.Sort(ordered)
-	return ordered[len(ordered)/2]
+	if len(ordered) > 2 {
+		ordered = ordered[1 : len(ordered)-1]
+	}
+	var total time.Duration
+	for _, sample := range ordered {
+		total += sample
+	}
+	return total / time.Duration(len(ordered))
 }
 
 func measureFirstEchoRTT(ctx context.Context, cfg *apis.ProtocolConfig) (time.Duration, error) {

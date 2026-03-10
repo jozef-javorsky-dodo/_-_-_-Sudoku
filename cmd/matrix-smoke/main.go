@@ -236,10 +236,14 @@ func proxyBidirectional(a, b net.Conn) {
 }
 
 func handleFallback(rawConn net.Conn, fallbackAddr string, replayPrefix []byte) {
+	handleFallbackWithVerbose(rawConn, fallbackAddr, replayPrefix, *flagVerbose)
+}
+
+func handleFallbackWithVerbose(rawConn net.Conn, fallbackAddr string, replayPrefix []byte, verbose bool) {
 	if rawConn == nil {
 		return
 	}
-	if *flagVerbose {
+	if verbose {
 		snippet := replayPrefix
 		if len(snippet) > 256 {
 			snippet = snippet[:256]
@@ -249,7 +253,7 @@ func handleFallback(rawConn net.Conn, fallbackAddr string, replayPrefix []byte) 
 	_ = rawConn.SetDeadline(time.Now().Add(3 * time.Second))
 	dst, err := net.DialTimeout("tcp", fallbackAddr, 3*time.Second)
 	if err != nil {
-		if *flagVerbose {
+		if verbose {
 			fmt.Fprintf(os.Stderr, "fallback proxy: dial failed: %v\n", err)
 		}
 		_ = rawConn.Close()
@@ -261,7 +265,7 @@ func handleFallback(rawConn net.Conn, fallbackAddr string, replayPrefix []byte) 
 	if len(replayPrefix) > 0 {
 		_ = dst.SetWriteDeadline(time.Now().Add(2 * time.Second))
 		if err := writeFull(dst, replayPrefix); err != nil {
-			if *flagVerbose {
+			if verbose {
 				fmt.Fprintf(os.Stderr, "fallback proxy: write failed: %v\n", err)
 			}
 			_ = dst.Close()
@@ -279,6 +283,7 @@ type serverHarness struct {
 	fallbackAddr string
 	tunnelSrv    *httpmask.TunnelServer
 	cfgBase      *apis.ProtocolConfig
+	verbose      bool
 	handshakes   atomic.Int64
 }
 
@@ -353,7 +358,7 @@ func (s *serverHarness) handleConn(rawConn net.Conn) {
 		case httpmask.HandlePassThrough:
 			handshakeConn = c
 			if r, ok := c.(interface{ IsHTTPMaskRejected() bool }); ok && r.IsHTTPMaskRejected() {
-				if *flagVerbose {
+				if s.verbose {
 					_ = c.SetReadDeadline(time.Now().Add(250 * time.Millisecond))
 					buf := make([]byte, 1024)
 					n, _ := c.Read(buf)
@@ -376,13 +381,13 @@ func (s *serverHarness) handleConn(rawConn net.Conn) {
 	s.handshakes.Add(1)
 	conn, session, targetAddr, _, payload, err := apis.ServerHandshakeSessionAutoWithUserHash(handshakeConn, &cfg)
 	if err != nil {
-		if *flagVerbose {
+		if s.verbose {
 			fmt.Fprintf(os.Stderr, "server handshake error: %T: %v\n", err, err)
 		}
 		var hsErr *apis.HandshakeError
 		if errors.As(err, &hsErr) && hsErr != nil {
 			replay := append(append([]byte(nil), hsErr.HTTPHeaderData...), hsErr.ReadData...)
-			handleFallback(hsErr.RawConn, s.fallbackAddr, replay)
+			handleFallbackWithVerbose(hsErr.RawConn, s.fallbackAddr, replay, s.verbose)
 			return
 		}
 		_ = rawConn.Close()
@@ -425,7 +430,7 @@ func (s *serverHarness) handleConn(rawConn net.Conn) {
 		_ = conn.Close()
 		_ = dst.Close()
 
-		if *flagVerbose {
+		if s.verbose {
 			if e1 != nil {
 				fmt.Fprintf(os.Stderr, "server forward copy (tunnel->target) error: %v\n", e1)
 			}
@@ -446,7 +451,7 @@ func (s *serverHarness) handleConn(rawConn net.Conn) {
 	}
 }
 
-func startSudokuServer(ctx context.Context, baseCfg *apis.ProtocolConfig, fallbackAddr string) (*serverHarness, error) {
+func startSudokuServer(ctx context.Context, baseCfg *apis.ProtocolConfig, fallbackAddr string, verbose bool) (*serverHarness, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -457,6 +462,7 @@ func startSudokuServer(ctx context.Context, baseCfg *apis.ProtocolConfig, fallba
 		serverAddr:   ln.Addr().String(),
 		fallbackAddr: fallbackAddr,
 		cfgBase:      baseCfg,
+		verbose:      verbose,
 	}
 
 	if !baseCfg.DisableHTTPMask {
@@ -604,6 +610,9 @@ func smokeMux(ctx context.Context, base *apis.ProtocolConfig, target1, target2 s
 func runOne(tc combo) error {
 	tc = tc.canonical()
 	lifeCtx := context.Background()
+	timeout := *flagTimeout
+	payloadKiB := *flagPayload
+	verbose := *flagVerbose
 
 	fallbackAddr, closeFallback, err := startFallbackHTTPServer(lifeCtx)
 	if err != nil {
@@ -645,13 +654,13 @@ func runOne(tc combo) error {
 	serverCfg.HTTPMaskPathRoot = tc.pathRoot
 	serverCfg.HTTPMaskMultiplex = tc.mux
 
-	srv, err := startSudokuServer(lifeCtx, serverCfg, fallbackAddr)
+	srv, err := startSudokuServer(lifeCtx, serverCfg, fallbackAddr, verbose)
 	if err != nil {
 		return fmt.Errorf("start server: %w", err)
 	}
 	defer srv.close()
 
-	fbCtx, fbCancel := context.WithTimeout(context.Background(), *flagTimeout)
+	fbCtx, fbCancel := context.WithTimeout(context.Background(), timeout)
 	defer fbCancel()
 	if err := smokeFallback(fbCtx, srv.serverAddr); err != nil {
 		return fmt.Errorf("fallback smoke: %w", err)
@@ -665,9 +674,9 @@ func runOne(tc combo) error {
 	atomic.StoreInt64(&crypto.KeyUpdateAfterBytes, 32<<10) // 32 KiB (smoke)
 	defer atomic.StoreInt64(&crypto.KeyUpdateAfterBytes, oldKU)
 
-	fwdCtx, fwdCancel := context.WithTimeout(context.Background(), *flagTimeout)
+	fwdCtx, fwdCancel := context.WithTimeout(context.Background(), timeout)
 	defer fwdCancel()
-	payloadSize := *flagPayload << 10
+	payloadSize := payloadKiB << 10
 	if payloadSize <= 0 {
 		payloadSize = 256 << 10
 	}
@@ -677,7 +686,7 @@ func runOne(tc combo) error {
 
 	if tc.mux == "on" {
 		clientCfg.TargetAddress = ""
-		muxCtx, muxCancel := context.WithTimeout(context.Background(), *flagTimeout)
+		muxCtx, muxCancel := context.WithTimeout(context.Background(), timeout)
 		defer muxCancel()
 		if err := smokeMux(muxCtx, &clientCfg, echo1, echo2); err != nil {
 			return fmt.Errorf("mux smoke: %w", err)
