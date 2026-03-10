@@ -257,6 +257,9 @@ func HandshakeAndUpgradeWithTablesMeta(rawConn net.Conn, cfg *config.Config, tab
 	if cfg == nil {
 		return nil, nil, fmt.Errorf("nil config")
 	}
+	if userHash, ok := httpmask.EarlyHandshakeUserHash(rawConn); ok {
+		return rawConn, &HandshakeMeta{UserHash: userHash}, nil
+	}
 
 	// 0) Byte-level prelude handling (legacy HTTP mask + buffered probe bytes).
 	bufReader := bufio.NewReader(rawConn)

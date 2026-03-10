@@ -90,9 +90,64 @@ type TunnelDialOptions struct {
 	// Upgrade is primarily used to reduce RTT by sending initial bytes (e.g. protocol handshake) while the
 	// HTTP tunnel is still establishing.
 	Upgrade func(raw net.Conn) (net.Conn, error)
+	// EarlyHandshake folds the protocol handshake into the HTTP/WS setup round trip.
+	// When the server accepts the early payload, DialTunnel returns a conn that is already post-handshake.
+	// When the server does not echo early data, DialTunnel falls back to Upgrade.
+	EarlyHandshake *ClientEarlyHandshake
 	// Multiplex controls whether DialTunnel reuses underlying HTTP connections (keep-alive / h2).
 	// Values: "off" disables global reuse; "auto"/"on" enables it. Empty defaults to "auto".
 	Multiplex string
+}
+
+type ClientEarlyHandshake struct {
+	RequestPayload []byte
+	HandleResponse func(payload []byte) error
+	Ready          func() bool
+	WrapConn       func(raw net.Conn) (net.Conn, error)
+}
+
+type TunnelServerEarlyHandshake struct {
+	Prepare func(payload []byte) (*PreparedServerEarlyHandshake, error)
+}
+
+type PreparedServerEarlyHandshake struct {
+	ResponsePayload []byte
+	WrapConn        func(raw net.Conn) (net.Conn, error)
+	UserHash        string
+}
+
+type earlyHandshakeMeta interface {
+	HTTPMaskEarlyHandshakeUserHash() string
+}
+
+type earlyHandshakeConn struct {
+	net.Conn
+	userHash string
+}
+
+func (c *earlyHandshakeConn) HTTPMaskEarlyHandshakeUserHash() string {
+	if c == nil {
+		return ""
+	}
+	return c.userHash
+}
+
+func wrapEarlyHandshakeConn(conn net.Conn, userHash string) net.Conn {
+	if conn == nil {
+		return nil
+	}
+	return &earlyHandshakeConn{Conn: conn, userHash: userHash}
+}
+
+func EarlyHandshakeUserHash(conn net.Conn) (string, bool) {
+	if conn == nil {
+		return "", false
+	}
+	v, ok := conn.(earlyHandshakeMeta)
+	if !ok {
+		return "", false
+	}
+	return v.HTTPMaskEarlyHandshakeUserHash(), true
 }
 
 // DialTunnel establishes a bidirectional stream over HTTP:
@@ -118,6 +173,17 @@ func DialTunnel(ctx context.Context, serverAddress string, opts TunnelDialOption
 			return nil, err
 		}
 		outConn := net.Conn(c)
+		if opts.EarlyHandshake != nil && opts.EarlyHandshake.WrapConn != nil && (opts.EarlyHandshake.Ready == nil || opts.EarlyHandshake.Ready()) {
+			upgraded, err := opts.EarlyHandshake.WrapConn(c)
+			if err != nil {
+				_ = c.Close()
+				return nil, err
+			}
+			if upgraded != nil {
+				outConn = upgraded
+			}
+			return outConn, nil
+		}
 		if opts.Upgrade != nil {
 			upgraded, err := opts.Upgrade(c)
 			if err != nil {

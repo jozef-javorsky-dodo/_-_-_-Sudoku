@@ -84,6 +84,13 @@ func RunServer(cfg *config.Config, tables []*sudoku.Table) {
 			Mode:     cfg.HTTPMask.Mode,
 			PathRoot: cfg.HTTPMask.PathRoot,
 			AuthKey:  cfg.Key,
+			EarlyHandshake: tunnel.NewHTTPMaskServerEarlyHandshake(tunnel.EarlyCodecConfig{
+				PSK:                cfg.Key,
+				AEAD:               cfg.AEAD,
+				EnablePureDownlink: cfg.EnablePureDownlink,
+				PaddingMin:         cfg.PaddingMin,
+				PaddingMax:         cfg.PaddingMax,
+			}, tables, tunnel.AllowHandshakeReplay),
 			PassThroughOnReject: func() bool {
 				if cfg.SuspiciousAction == "silent" {
 					return true

@@ -96,3 +96,7 @@ func (p *handshakeReplayProtector) allow(userHash string, nonce [kipHelloNonceSi
 }
 
 var globalHandshakeReplay = &handshakeReplayProtector{}
+
+func AllowHandshakeReplay(userHash string, nonce [kipHelloNonceSize]byte, now time.Time) bool {
+	return globalHandshakeReplay.allow(userHash, nonce, now)
+}

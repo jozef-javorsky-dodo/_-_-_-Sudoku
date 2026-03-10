@@ -51,18 +51,31 @@ func (d *BaseDialer) DialBase() (net.Conn, error) {
 	return d.dialBase()
 }
 
-func (d *BaseDialer) dialHTTPMaskTunnel(dialCtx context.Context, upgrade func(net.Conn) (net.Conn, error)) (net.Conn, error) {
+func (d *BaseDialer) dialHTTPMaskTunnel(dialCtx context.Context, table *sudoku.Table, upgrade func(net.Conn) (net.Conn, error)) (net.Conn, error) {
 	if d.Config == nil {
 		return nil, fmt.Errorf("missing config")
 	}
+	earlyHandshake, err := NewHTTPMaskClientEarlyHandshake(EarlyCodecConfig{
+		PSK:                d.Config.Key,
+		AEAD:               d.Config.AEAD,
+		EnablePureDownlink: d.Config.EnablePureDownlink,
+		PaddingMin:         d.Config.PaddingMin,
+		PaddingMax:         d.Config.PaddingMax,
+	}, table, kipUserHashFromPrivateKey(d.PrivateKey, d.Config.Key), KIPFeatAll)
+	if err != nil {
+		return nil, err
+	}
 	opts := httpmask.TunnelDialOptions{
-		Mode:         d.Config.HTTPMask.Mode,
-		TLSEnabled:   d.Config.HTTPMask.TLS,
-		HostOverride: d.Config.HTTPMask.Host,
-		PathRoot:     d.Config.HTTPMask.PathRoot,
-		AuthKey:      d.Config.Key,
-		Upgrade:      upgrade,
-		Multiplex:    d.Config.HTTPMask.Multiplex,
+		Mode:           d.Config.HTTPMask.Mode,
+		TLSEnabled:     d.Config.HTTPMask.TLS,
+		HostOverride:   d.Config.HTTPMask.Host,
+		PathRoot:       d.Config.HTTPMask.PathRoot,
+		AuthKey:        d.Config.Key,
+		EarlyHandshake: earlyHandshake,
+		Upgrade: func(raw net.Conn) (net.Conn, error) {
+			return upgrade(raw)
+		},
+		Multiplex: d.Config.HTTPMask.Multiplex,
 	}
 	return httpmask.DialTunnel(dialCtx, d.Config.ServerAddress, opts)
 }
@@ -94,12 +107,11 @@ func (d *BaseDialer) dialBase() (net.Conn, error) {
 	if d.Config.HTTPMaskTunnelEnabled() {
 		dialCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-
 		table, err := d.pickTable()
 		if err != nil {
 			return nil, err
 		}
-		conn, err := d.dialHTTPMaskTunnel(dialCtx, func(raw net.Conn) (net.Conn, error) {
+		conn, err := d.dialHTTPMaskTunnel(dialCtx, table, func(raw net.Conn) (net.Conn, error) {
 			return ClientHandshake(raw, d.Config, table, d.PrivateKey)
 		})
 		if err != nil {
@@ -159,7 +171,7 @@ func (d *BaseDialer) dialTarget(destAddrStr string) (net.Conn, error) {
 			return nil, err
 		}
 
-		conn, err := d.dialHTTPMaskTunnel(dialCtx, func(raw net.Conn) (net.Conn, error) {
+		conn, err := d.dialHTTPMaskTunnel(dialCtx, table, func(raw net.Conn) (net.Conn, error) {
 			cConn, err := ClientHandshake(raw, d.Config, table, d.PrivateKey)
 			if err != nil {
 				return nil, err

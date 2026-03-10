@@ -66,6 +66,7 @@ var (
 	flagPayloadKiB   = flag.Int("payload-kib", 32, "Forward payload size in KiB")
 	flagStart        = flag.Int("start", 0, "Start case index (for debugging)")
 	flagCount        = flag.Int("count", -1, "Number of cases to run from start (-1 = all)")
+	flagVerifyRTT    = flag.Bool("verify-rtt", true, "Verify httpmask first-byte RTT matches the no-httpmask baseline")
 	flagKeyUpdate    = flag.Bool("keyupdate", true, "Run an extra large transfer to exercise key updates")
 	flagKeyUpdateMiB = flag.Int("keyupdate-mib", 40, "Key update transfer size in MiB (must exceed 32MiB)")
 )
@@ -214,10 +215,11 @@ func smokeFallback(ctx context.Context, host string, port int) error {
 	return nil
 }
 
-func smokeForward(ctx context.Context, cfg *apis.ProtocolConfig, msgSize int, ioTimeout time.Duration) error {
+func measureForward(ctx context.Context, cfg *apis.ProtocolConfig, msgSize int, ioTimeout time.Duration) (time.Duration, error) {
+	start := time.Now()
 	c, err := apis.Dial(ctx, cfg)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer c.Close()
 
@@ -231,7 +233,7 @@ func smokeForward(ctx context.Context, cfg *apis.ProtocolConfig, msgSize int, io
 	}
 	_ = c.SetWriteDeadline(time.Now().Add(ioTimeout))
 	if err := connutil.WriteFull(c, payload); err != nil {
-		return err
+		return 0, err
 	}
 	_ = c.SetWriteDeadline(time.Time{})
 
@@ -245,14 +247,14 @@ func smokeForward(ctx context.Context, cfg *apis.ProtocolConfig, msgSize int, io
 		}
 		if err != nil {
 			_ = c.SetReadDeadline(time.Time{})
-			return fmt.Errorf("read %d/%d: %w", readN, len(got), err)
+			return 0, fmt.Errorf("read %d/%d: %w", readN, len(got), err)
 		}
 	}
 	_ = c.SetReadDeadline(time.Time{})
 	if !bytes.Equal(got, payload) {
-		return fmt.Errorf("echo mismatch")
+		return 0, fmt.Errorf("echo mismatch")
 	}
-	return nil
+	return time.Since(start), nil
 }
 
 func smokeMux(ctx context.Context, base *apis.ProtocolConfig, target1, target2 string) error {
@@ -393,6 +395,47 @@ func allCombos() []combo {
 	return out
 }
 
+func rttTolerance(base time.Duration) time.Duration {
+	tol := base / 4
+	if tol < 75*time.Millisecond {
+		tol = 75 * time.Millisecond
+	}
+	return tol
+}
+
+func verifyRTTParity(ctx context.Context, host string, enabled combo, cfg *apis.ProtocolConfig, ioTimeout time.Duration) error {
+	if !*flagVerifyRTT || !enabled.httpmaskEnabled {
+		return nil
+	}
+
+	baseline := enabled.canonical()
+	baseline.httpmaskEnabled = false
+	baseline.httpmaskMode = "legacy"
+	baseline.mux = "off"
+	baseline.pathRoot = ""
+
+	baseCfg := *cfg
+	baseCfg.ServerAddress = serverAddr(host, portFor(baseline))
+	baseCfg.DisableHTTPMask = true
+	baseCfg.HTTPMaskMode = "legacy"
+	baseCfg.HTTPMaskMultiplex = "off"
+	baseCfg.HTTPMaskPathRoot = ""
+
+	enabledProbeCfg := *cfg
+	enabledDur, err := measureForward(ctx, &enabledProbeCfg, 1, ioTimeout)
+	if err != nil {
+		return fmt.Errorf("httpmask probe failed: %w", err)
+	}
+	baseDur, err := measureForward(ctx, &baseCfg, 1, ioTimeout)
+	if err != nil {
+		return fmt.Errorf("baseline no-httpmask probe failed: %w", err)
+	}
+	if enabledDur > baseDur+rttTolerance(baseDur) {
+		return fmt.Errorf("rtt mismatch: httpmask=%v baseline=%v tolerance=%v", enabledDur, baseDur, rttTolerance(baseDur))
+	}
+	return nil
+}
+
 func main() {
 	flag.Parse()
 	if strings.TrimSpace(*flagKey) == "" {
@@ -481,15 +524,21 @@ func main() {
 					ioTimeout = remain
 				}
 			}
-			if err := smokeForward(caseCtx, cfg, (*flagPayloadKiB)*1024, ioTimeout); err != nil {
+			_, err = measureForward(caseCtx, cfg, (*flagPayloadKiB)*1024, ioTimeout)
+			if err != nil {
 				// One retry for transient network / transport timeouts.
 				if isTimeoutErr(err) {
 					time.Sleep(250 * time.Millisecond)
-					if err2 := smokeForward(caseCtx, cfg, (*flagPayloadKiB)*1024, ioTimeout); err2 == nil {
-						return nil
+					if _, err2 := measureForward(caseCtx, cfg, (*flagPayloadKiB)*1024, ioTimeout); err2 == nil {
+						err = nil
 					}
 				}
-				return fmt.Errorf("forward: %w", err)
+				if err != nil {
+					return fmt.Errorf("forward: %w", err)
+				}
+			}
+			if err := verifyRTTParity(caseCtx, *flagHost, cc, cfg, ioTimeout); err != nil {
+				return fmt.Errorf("rtt: %w", err)
 			}
 
 			if cc.httpmaskEnabled && strings.EqualFold(cc.mux, "on") {

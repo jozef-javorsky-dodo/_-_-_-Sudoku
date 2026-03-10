@@ -22,6 +22,7 @@ package httpmask
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	mrand "math/rand"
@@ -129,6 +130,12 @@ func dialWS(ctx context.Context, serverAddress string, opts TunnelDialOptions) (
 		Host:   urlHost,
 		Path:   joinPathRoot(opts.PathRoot, "/ws"),
 	}).String()
+	if opts.EarlyHandshake != nil && len(opts.EarlyHandshake.RequestPayload) > 0 {
+		u, err = setEarlyDataQuery(u, opts.EarlyHandshake.RequestPayload)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -172,6 +179,19 @@ func dialWS(ctx context.Context, serverAddress string, opts TunnelDialOptions) (
 	}
 	if err != nil {
 		return nil, err
+	}
+	if opts.EarlyHandshake != nil && opts.EarlyHandshake.HandleResponse != nil && resp != nil {
+		if earlyVal := strings.TrimSpace(resp.Header.Get(tunnelEarlyDataHeader)); earlyVal != "" {
+			decoded, decErr := base64.RawURLEncoding.DecodeString(earlyVal)
+			if decErr != nil {
+				_ = c.Close(websocket.StatusInternalError, "bad early data")
+				return nil, decErr
+			}
+			if err := opts.EarlyHandshake.HandleResponse(decoded); err != nil {
+				_ = c.Close(websocket.StatusInternalError, "early handshake failed")
+				return nil, err
+			}
+		}
 	}
 	return websocket.NetConn(context.Background(), c, websocket.MessageBinary), nil
 }

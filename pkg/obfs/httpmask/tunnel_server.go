@@ -58,6 +58,8 @@ type TunnelServerOptions struct {
 	PullReadTimeout time.Duration
 	// SessionTTL is a best-effort TTL to prevent leaked sessions. 0 uses a conservative default.
 	SessionTTL time.Duration
+	// EarlyHandshake optionally folds the protocol handshake into the initial HTTP/WS round trip.
+	EarlyHandshake *TunnelServerEarlyHandshake
 }
 
 type TunnelServer struct {
@@ -68,6 +70,7 @@ type TunnelServer struct {
 
 	pullReadTimeout time.Duration
 	sessionTTL      time.Duration
+	earlyHandshake  *TunnelServerEarlyHandshake
 
 	mu       sync.Mutex
 	sessions map[string]*tunnelSession
@@ -100,6 +103,7 @@ func NewTunnelServer(opts TunnelServerOptions) *TunnelServer {
 		auth:                auth,
 		pullReadTimeout:     timeout,
 		sessionTTL:          ttl,
+		earlyHandshake:      opts.EarlyHandshake,
 		sessions:            make(map[string]*tunnelSession),
 	}
 }
@@ -501,7 +505,11 @@ func (s *TunnelServer) handleStream(rawConn net.Conn, req *httpRequestHeader, he
 	case http.MethodGet:
 		// Stream Split Session: GET /session (no token) => token + start tunnel on a server-side pipe.
 		if token == "" && path == "/session" {
-			return s.sessionAuthorize(rawConn)
+			earlyPayload, err := parseEarlyDataQuery(u)
+			if err != nil {
+				return s.rejectOrReply(rawConn, headerBytes, buffered, http.StatusBadRequest, "bad request")
+			}
+			return s.sessionAuthorize(rawConn, earlyPayload)
 		}
 		// Stream Split Session: GET /stream?token=... => downlink poll.
 		if token != "" && path == "/stream" {
@@ -617,12 +625,16 @@ func writeSimpleHTTPResponse(w io.Writer, code int, body string) error {
 	return err
 }
 
-func writeTokenHTTPResponse(w io.Writer, token string) error {
+func writeTokenHTTPResponse(w io.Writer, token string, earlyPayload []byte) error {
 	token = strings.TrimRight(token, "\r\n")
+	body := "token=" + token
+	if len(earlyPayload) > 0 {
+		body += "\ned=" + base64.RawURLEncoding.EncodeToString(earlyPayload)
+	}
 	// Use application/octet-stream to avoid CDN auto-compression (e.g. brotli) breaking clients that expect a plain token string.
 	_, err := io.WriteString(w,
-		fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\nPragma: no-cache\r\nContent-Length: %d\r\nConnection: close\r\n\r\ntoken=%s",
-			len("token=")+len(token), token))
+		fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\nPragma: no-cache\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+			len(body), body))
 	return err
 }
 
@@ -650,7 +662,11 @@ func (s *TunnelServer) handlePoll(rawConn net.Conn, req *httpRequestHeader, head
 	switch strings.ToUpper(req.method) {
 	case http.MethodGet:
 		if token == "" && path == "/session" {
-			return s.sessionAuthorize(rawConn)
+			earlyPayload, err := parseEarlyDataQuery(u)
+			if err != nil {
+				return s.rejectOrReply(rawConn, headerBytes, buffered, http.StatusBadRequest, "bad request")
+			}
+			return s.sessionAuthorize(rawConn, earlyPayload)
 		}
 		if path == "/stream" {
 			if s.passThroughOnReject && !s.sessionHas(token) {
@@ -691,7 +707,7 @@ func (s *TunnelServer) handlePoll(rawConn net.Conn, req *httpRequestHeader, head
 	}
 }
 
-func (s *TunnelServer) sessionAuthorize(rawConn net.Conn) (HandleResult, net.Conn, error) {
+func (s *TunnelServer) sessionAuthorize(rawConn net.Conn, earlyPayload []byte) (HandleResult, net.Conn, error) {
 	token, err := newSessionToken()
 	if err != nil {
 		_ = writeSimpleHTTPResponse(rawConn, http.StatusInternalServerError, "internal error")
@@ -700,6 +716,32 @@ func (s *TunnelServer) sessionAuthorize(rawConn net.Conn) (HandleResult, net.Con
 	}
 
 	c1, c2 := newHalfPipe()
+	outConn := net.Conn(c1)
+	var responsePayload []byte
+	var userHash string
+	if len(earlyPayload) > 0 && s.earlyHandshake != nil && s.earlyHandshake.Prepare != nil {
+		prepared, err := s.earlyHandshake.Prepare(earlyPayload)
+		if err != nil {
+			_ = c1.Close()
+			_ = c2.Close()
+			return s.rejectOrReply(rawConn, nil, nil, http.StatusNotFound, "not found")
+		}
+		responsePayload = prepared.ResponsePayload
+		userHash = prepared.UserHash
+		if prepared.WrapConn != nil {
+			wrapped, err := prepared.WrapConn(c1)
+			if err != nil {
+				_ = c1.Close()
+				_ = c2.Close()
+				_ = writeSimpleHTTPResponse(rawConn, http.StatusInternalServerError, "internal error")
+				_ = rawConn.Close()
+				return HandleDone, nil, nil
+			}
+			if wrapped != nil {
+				outConn = wrapEarlyHandshakeConn(wrapped, userHash)
+			}
+		}
+	}
 
 	s.mu.Lock()
 	s.sessions[token] = &tunnelSession{conn: c2, lastActive: time.Now()}
@@ -707,9 +749,9 @@ func (s *TunnelServer) sessionAuthorize(rawConn net.Conn) (HandleResult, net.Con
 
 	go s.reapLater(token)
 
-	_ = writeTokenHTTPResponse(rawConn, token)
+	_ = writeTokenHTTPResponse(rawConn, token, responsePayload)
 	_ = rawConn.Close()
-	return HandleStartTunnel, c1, nil
+	return HandleStartTunnel, outConn, nil
 }
 
 func newSessionToken() (string, error) {

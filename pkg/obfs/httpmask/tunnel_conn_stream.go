@@ -91,6 +91,17 @@ func dialStreamSplit(ctx context.Context, serverAddress string, opts TunnelDialO
 	go c.pullLoop()
 	go c.pushLoop()
 	outConn := net.Conn(c)
+	if opts.EarlyHandshake != nil && opts.EarlyHandshake.WrapConn != nil && (opts.EarlyHandshake.Ready == nil || opts.EarlyHandshake.Ready()) {
+		upgraded, err := opts.EarlyHandshake.WrapConn(c)
+		if err != nil {
+			_ = c.Close()
+			return nil, err
+		}
+		if upgraded != nil {
+			outConn = upgraded
+		}
+		return outConn, nil
+	}
 	if opts.Upgrade != nil {
 		upgraded, err := opts.Upgrade(c)
 		if err != nil {

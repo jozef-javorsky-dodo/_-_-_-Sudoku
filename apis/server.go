@@ -224,6 +224,10 @@ func serverHandshakeCoreWithUserHash(rawConn net.Conn, cfg *ProtocolConfig) (net
 	if err := cfg.Validate(); err != nil {
 		return nil, "", nil, fmt.Errorf("invalid config: %w", err)
 	}
+	if userHash, ok := httpmask.EarlyHandshakeUserHash(rawConn); ok {
+		fail := func(originalErr error) error { return originalErr }
+		return rawConn, userHash, fail, nil
+	}
 
 	deadline := time.Now().Add(time.Duration(cfg.HandshakeTimeoutSeconds) * time.Second)
 	rawConn.SetReadDeadline(deadline)

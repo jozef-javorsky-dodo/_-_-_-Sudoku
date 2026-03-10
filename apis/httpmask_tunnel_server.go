@@ -23,6 +23,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/saba-futai/sudoku/internal/tunnel"
 	"github.com/saba-futai/sudoku/pkg/obfs/httpmask"
 )
 
@@ -56,11 +57,18 @@ func NewHTTPMaskTunnelServer(cfg *ProtocolConfig) *HTTPMaskTunnelServer {
 	var ts *httpmask.TunnelServer
 	if !cfg.DisableHTTPMask {
 		switch strings.ToLower(strings.TrimSpace(cfg.HTTPMaskMode)) {
-		case "stream", "poll", "auto":
+		case "stream", "poll", "auto", "ws":
 			ts = httpmask.NewTunnelServer(httpmask.TunnelServerOptions{
 				Mode:     cfg.HTTPMaskMode,
 				PathRoot: cfg.HTTPMaskPathRoot,
 				AuthKey:  cfg.Key,
+				EarlyHandshake: tunnel.NewHTTPMaskServerEarlyHandshake(tunnel.EarlyCodecConfig{
+					PSK:                cfg.Key,
+					AEAD:               cfg.AEADMethod,
+					EnablePureDownlink: cfg.EnablePureDownlink,
+					PaddingMin:         cfg.PaddingMin,
+					PaddingMax:         cfg.PaddingMax,
+				}, cfg.tableCandidates(), nil),
 			})
 		}
 	}

@@ -289,6 +289,19 @@ func (s *serverHarness) close() error {
 	return s.ln.Close()
 }
 
+func protocolTables(cfg *apis.ProtocolConfig) []*sudoku.Table {
+	if cfg == nil {
+		return nil
+	}
+	if len(cfg.Tables) > 0 {
+		return cfg.Tables
+	}
+	if cfg.Table != nil {
+		return []*sudoku.Table{cfg.Table}
+	}
+	return nil
+}
+
 func (s *serverHarness) serve(ctx context.Context) error {
 	if s == nil || s.ln == nil || s.cfgBase == nil {
 		return fmt.Errorf("invalid server harness")
@@ -450,9 +463,16 @@ func startSudokuServer(ctx context.Context, baseCfg *apis.ProtocolConfig, fallba
 		switch strings.ToLower(strings.TrimSpace(baseCfg.HTTPMaskMode)) {
 		case "stream", "poll", "auto", "ws":
 			h.tunnelSrv = httpmask.NewTunnelServer(httpmask.TunnelServerOptions{
-				Mode:                baseCfg.HTTPMaskMode,
-				PathRoot:            baseCfg.HTTPMaskPathRoot,
-				AuthKey:             baseCfg.Key,
+				Mode:     baseCfg.HTTPMaskMode,
+				PathRoot: baseCfg.HTTPMaskPathRoot,
+				AuthKey:  baseCfg.Key,
+				EarlyHandshake: tunnel.NewHTTPMaskServerEarlyHandshake(tunnel.EarlyCodecConfig{
+					PSK:                baseCfg.Key,
+					AEAD:               baseCfg.AEADMethod,
+					EnablePureDownlink: baseCfg.EnablePureDownlink,
+					PaddingMin:         baseCfg.PaddingMin,
+					PaddingMax:         baseCfg.PaddingMax,
+				}, protocolTables(baseCfg), nil),
 				PassThroughOnReject: true,
 			})
 		}

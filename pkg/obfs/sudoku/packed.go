@@ -32,6 +32,8 @@ import (
 const (
 	// RngBatchSize controls how many random numbers to batch per RNG pull (micro-optimization).
 	RngBatchSize = 128
+
+	packedProtectedPrefixBytes = 14
 )
 
 // PackedConn is a bandwidth-optimized downlink codec.
@@ -119,6 +121,55 @@ func (pc *PackedConn) appendGroup(out []byte, group byte) []byte {
 	return append(out, pc.encodeGroup(group))
 }
 
+func (pc *PackedConn) appendForcedPadding(out []byte) []byte {
+	return append(out, pc.getPaddingByte())
+}
+
+func (pc *PackedConn) nextProtectedPrefixGap() int {
+	return 1 + pc.rng.Intn(2)
+}
+
+func (pc *PackedConn) writeProtectedPrefix(out []byte, p []byte) ([]byte, int) {
+	if len(p) == 0 {
+		return out, 0
+	}
+
+	limit := len(p)
+	if limit > packedProtectedPrefixBytes {
+		limit = packedProtectedPrefixBytes
+	}
+
+	for padCount := 0; padCount < 1+pc.rng.Intn(2); padCount++ {
+		out = pc.appendForcedPadding(out)
+	}
+
+	gap := pc.nextProtectedPrefixGap()
+	effective := 0
+	for i := 0; i < limit; i++ {
+		pc.bitBuf = (pc.bitBuf << 8) | uint64(p[i])
+		pc.bitCount += 8
+		for pc.bitCount >= 6 {
+			pc.bitCount -= 6
+			group := byte(pc.bitBuf >> pc.bitCount)
+			if pc.bitCount == 0 {
+				pc.bitBuf = 0
+			} else {
+				pc.bitBuf &= (1 << pc.bitCount) - 1
+			}
+			out = pc.appendGroup(out, group&0x3F)
+		}
+
+		effective++
+		if effective >= gap {
+			out = pc.appendForcedPadding(out)
+			effective = 0
+			gap = pc.nextProtectedPrefixGap()
+		}
+	}
+
+	return out, limit
+}
+
 // Write encodes bytes into 6-bit groups and writes the corresponding hint bytes.
 func (pc *PackedConn) Write(p []byte) (int, error) {
 	if len(p) == 0 {
@@ -136,8 +187,14 @@ func (pc *PackedConn) Write(p []byte) (int, error) {
 	}
 	out := pc.writeBuf[:0]
 
+	prefixN := 0
+	out, prefixN = pc.writeProtectedPrefix(out, p)
+
 	i := 0
 	n := len(p)
+	if prefixN > 0 {
+		i = prefixN
+	}
 
 	// 2. Header alignment (Slow Path)
 	for pc.bitCount > 0 && i < n {

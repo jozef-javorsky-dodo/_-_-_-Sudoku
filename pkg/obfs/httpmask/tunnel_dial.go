@@ -23,6 +23,7 @@ import (
 	"container/list"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -35,6 +36,16 @@ import (
 
 	"github.com/saba-futai/sudoku/pkg/dnsutil"
 )
+
+const (
+	tunnelEarlyDataQueryKey = "ed"
+	tunnelEarlyDataHeader   = "X-Sudoku-Early"
+)
+
+type authorizeResponse struct {
+	token        string
+	earlyPayload []byte
+}
 
 func canonicalHeaderHost(urlHost, scheme string) string {
 	host, port, err := net.SplitHostPort(urlHost)
@@ -61,14 +72,22 @@ func canonicalHeaderHost(urlHost, scheme string) string {
 }
 
 func parseTunnelToken(body []byte) (string, error) {
+	resp, err := parseAuthorizeResponse(body)
+	if err != nil {
+		return "", err
+	}
+	return resp.token, nil
+}
+
+func parseAuthorizeResponse(body []byte) (*authorizeResponse, error) {
 	s := strings.TrimSpace(string(body))
 	idx := strings.Index(s, "token=")
 	if idx < 0 {
-		return "", errors.New("missing token")
+		return nil, errors.New("missing token")
 	}
 	s = s[idx+len("token="):]
 	if s == "" {
-		return "", errors.New("empty token")
+		return nil, errors.New("empty token")
 	}
 	// Token is base64.RawURLEncoding (A-Z a-z 0-9 - _). Strip any trailing bytes (e.g. from CDN compression).
 	var b strings.Builder
@@ -82,9 +101,52 @@ func parseTunnelToken(body []byte) (string, error) {
 	}
 	token := b.String()
 	if token == "" {
-		return "", errors.New("empty token")
+		return nil, errors.New("empty token")
 	}
-	return token, nil
+	out := &authorizeResponse{token: token}
+	if earlyLine := findAuthorizeField(body, "ed="); earlyLine != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(earlyLine)
+		if err != nil {
+			return nil, fmt.Errorf("decode early authorize payload failed: %w", err)
+		}
+		out.earlyPayload = decoded
+	}
+	return out, nil
+}
+
+func findAuthorizeField(body []byte, prefix string) string {
+	for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
+}
+
+func setEarlyDataQuery(rawURL string, payload []byte) (string, error) {
+	if len(payload) == 0 {
+		return rawURL, nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	q := u.Query()
+	q.Set(tunnelEarlyDataQueryKey, base64.RawURLEncoding.EncodeToString(payload))
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+func parseEarlyDataQuery(u *url.URL) ([]byte, error) {
+	if u == nil {
+		return nil, nil
+	}
+	val := strings.TrimSpace(u.Query().Get(tunnelEarlyDataQueryKey))
+	if val == "" {
+		return nil, nil
+	}
+	return base64.RawURLEncoding.DecodeString(val)
 }
 
 type sessionDialInfo struct {
@@ -237,6 +299,12 @@ func dialSession(ctx context.Context, serverAddress string, opts TunnelDialOptio
 	client := newHTTPClient(urlHost, dialAddr, serverName, scheme, 32, multiplexEnabled(opts.Multiplex))
 
 	authorizeURL := (&url.URL{Scheme: scheme, Host: urlHost, Path: joinPathRoot(opts.PathRoot, "/session")}).String()
+	if opts.EarlyHandshake != nil && len(opts.EarlyHandshake.RequestPayload) > 0 {
+		authorizeURL, err = setEarlyDataQuery(authorizeURL, opts.EarlyHandshake.RequestPayload)
+		if err != nil {
+			return nil, err
+		}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, authorizeURL, nil)
 	if err != nil {
 		return nil, err
@@ -258,12 +326,18 @@ func dialSession(ctx context.Context, serverAddress string, opts TunnelDialOptio
 		return nil, fmt.Errorf("%s authorize bad status: %s (%s)", mode, resp.Status, strings.TrimSpace(string(bodyBytes)))
 	}
 
-	token, err := parseTunnelToken(bodyBytes)
+	authResp, err := parseAuthorizeResponse(bodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("%s authorize failed: %q", mode, strings.TrimSpace(string(bodyBytes)))
 	}
+	token := authResp.token
 	if token == "" {
 		return nil, fmt.Errorf("%s authorize empty token", mode)
+	}
+	if opts.EarlyHandshake != nil && len(authResp.earlyPayload) > 0 && opts.EarlyHandshake.HandleResponse != nil {
+		if err := opts.EarlyHandshake.HandleResponse(authResp.earlyPayload); err != nil {
+			return nil, err
+		}
 	}
 
 	pushURL := (&url.URL{Scheme: scheme, Host: urlHost, Path: joinPathRoot(opts.PathRoot, "/api/v1/upload"), RawQuery: "token=" + url.QueryEscape(token)}).String()

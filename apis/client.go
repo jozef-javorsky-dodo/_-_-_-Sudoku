@@ -74,12 +74,13 @@ func pickClientTable(cfg *ProtocolConfig) (*sudoku.Table, error) {
 }
 
 func wrapClientConn(rawConn net.Conn, cfg *ProtocolConfig, table *sudoku.Table, seed string) (net.Conn, error) {
-	obfsConn := buildClientObfsConn(rawConn, cfg, table)
-	if strings.TrimSpace(seed) == "" {
-		seed = cfg.Key
-	}
 	pskC2S, pskS2C := tunnel.DerivePSKDirectionalBases(seed)
-	cConn, err := crypto.NewRecordConn(obfsConn, cfg.AEADMethod, pskC2S, pskS2C)
+	return wrapClientConnWithBases(rawConn, cfg, table, pskC2S, pskS2C)
+}
+
+func wrapClientConnWithBases(rawConn net.Conn, cfg *ProtocolConfig, table *sudoku.Table, sendBase, recvBase []byte) (net.Conn, error) {
+	obfsConn := buildClientObfsConn(rawConn, cfg, table)
+	cConn, err := crypto.NewRecordConn(obfsConn, cfg.AEADMethod, sendBase, recvBase)
 	if err != nil {
 		_ = rawConn.Close()
 		return nil, fmt.Errorf("setup crypto failed: %w", err)
@@ -157,13 +158,24 @@ func establishBaseConn(ctx context.Context, cfg *ProtocolConfig, validate func(*
 			if err != nil {
 				return nil, err
 			}
+			earlyHandshake, err := tunnel.NewHTTPMaskClientEarlyHandshake(tunnel.EarlyCodecConfig{
+				PSK:                seed,
+				AEAD:               cfg.AEADMethod,
+				EnablePureDownlink: cfg.EnablePureDownlink,
+				PaddingMin:         cfg.PaddingMin,
+				PaddingMax:         cfg.PaddingMax,
+			}, table, kipUserHashFromKey(cfg.Key), tunnel.KIPFeatAll)
+			if err != nil {
+				return nil, err
+			}
 
 			conn, err := httpmask.DialTunnel(ctx, cfg.ServerAddress, httpmask.TunnelDialOptions{
-				Mode:         cfg.HTTPMaskMode,
-				TLSEnabled:   cfg.HTTPMaskTLSEnabled,
-				HostOverride: cfg.HTTPMaskHost,
-				PathRoot:     cfg.HTTPMaskPathRoot,
-				AuthKey:      seed,
+				Mode:           cfg.HTTPMaskMode,
+				TLSEnabled:     cfg.HTTPMaskTLSEnabled,
+				HostOverride:   cfg.HTTPMaskHost,
+				PathRoot:       cfg.HTTPMaskPathRoot,
+				AuthKey:        seed,
+				EarlyHandshake: earlyHandshake,
 				Upgrade: func(rawConn net.Conn) (net.Conn, error) {
 					return upgradeClientConn(rawConn, cfg, table, seed, nil)
 				},

@@ -23,6 +23,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"net/http"
@@ -144,6 +145,18 @@ func (s *TunnelServer) handleWS(rawConn net.Conn, req *httpRequestHeader, header
 		return s.rejectOrReply(rawConn, headerBytes, buffered, http.StatusNotFound, "not found")
 	}
 
+	earlyPayload, err := parseEarlyDataQuery(u)
+	if err != nil {
+		return s.rejectOrReply(rawConn, headerBytes, buffered, http.StatusBadRequest, "bad request")
+	}
+	var prepared *PreparedServerEarlyHandshake
+	if len(earlyPayload) > 0 && s.earlyHandshake != nil && s.earlyHandshake.Prepare != nil {
+		prepared, err = s.earlyHandshake.Prepare(earlyPayload)
+		if err != nil {
+			return s.rejectOrReply(rawConn, headerBytes, buffered, http.StatusNotFound, "not found")
+		}
+	}
+
 	// Preserve any bytes read beyond the HTTP header as initial WebSocket stream bytes.
 	wsConnRaw := newPreBufferedConn(rawConn, buffered)
 	r, err := buildHTTPRequestFromHeaderBytes(headerBytes, rawConn)
@@ -151,7 +164,11 @@ func (s *TunnelServer) handleWS(rawConn net.Conn, req *httpRequestHeader, header
 		return s.rejectOrReply(rawConn, headerBytes, buffered, http.StatusBadRequest, "bad request")
 	}
 
-	c, err := websocket.Accept(&hijackRW{conn: wsConnRaw}, r, &websocket.AcceptOptions{
+	rw := &hijackRW{conn: wsConnRaw}
+	if prepared != nil && len(prepared.ResponsePayload) > 0 {
+		rw.Header().Set(tunnelEarlyDataHeader, base64.RawURLEncoding.EncodeToString(prepared.ResponsePayload))
+	}
+	c, err := websocket.Accept(rw, r, &websocket.AcceptOptions{
 		CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {
@@ -159,5 +176,16 @@ func (s *TunnelServer) handleWS(rawConn net.Conn, req *httpRequestHeader, header
 		_ = rawConn.Close()
 		return HandleDone, nil, nil
 	}
-	return HandleStartTunnel, websocket.NetConn(context.Background(), c, websocket.MessageBinary), nil
+	outConn := net.Conn(websocket.NetConn(context.Background(), c, websocket.MessageBinary))
+	if prepared != nil && prepared.WrapConn != nil {
+		wrapped, err := prepared.WrapConn(outConn)
+		if err != nil {
+			_ = outConn.Close()
+			return HandleDone, nil, nil
+		}
+		if wrapped != nil {
+			outConn = wrapEarlyHandshakeConn(wrapped, prepared.UserHash)
+		}
+	}
+	return HandleStartTunnel, outConn, nil
 }
