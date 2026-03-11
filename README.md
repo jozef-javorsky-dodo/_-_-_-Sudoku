@@ -1,7 +1,7 @@
 
 <p align="center">
   <img src="./assets/logo-brutal.svg" width="100%">
-    A Sudoku-based proxy protocol, ushering in the era of plaintext / low-entropy proxies
+    A Sudoku-based proxy protocol that abandons randomness and ushers in the era of plaintext / low-entropy / user-defined-fingerprint proxies
 </p>
 
 # Sudoku (ASCII)
@@ -16,15 +16,16 @@
 [中文文档](https://github.com/SUDOKU-ASCII/sudoku/blob/main/README.zh_CN.md)
 
 
-**SUDOKU** is a traffic obfuscation protocol based on the creation and solving of 4x4 Sudoku puzzles. It maps arbitrary data streams (data bytes have at most 256 possibilities, while non-isomorphic 4x4 Sudokus have 288 variants) into uniquely solvable Sudoku puzzles based on 4 Clues. Since each Puzzle has more than one setting scheme, the random selection process results in multiple combinations for the same encoded data, generating obfuscation.
+**SUDOKU** is a traffic obfuscation protocol based on constructing and solving 4x4 Sudoku puzzles. It maps arbitrary data streams (data bytes have at most 256 possibilities, while non-isomorphic 4x4 Sudokus have 288 variants) into uniquely solvable Sudoku puzzles built from 4 clues. Since each puzzle has at least one valid clue-setting scheme, the random selection process yields multiple encodings for the same data, creating obfuscation.
 
-The core philosophy of this project is to utilize the mathematical properties of Sudoku grids to implement byte stream encoding/decoding, while providing arbitrary padding and resistance to active probing.
+After the original data bytes are mapped into Sudoku puzzles and sent to the other side, the peer can recover the original bytes by solving them. Because the mapping is diverse, users can freely decide what the traffic should look like.
 
 ## Supported Clients
 
 Version requirements:
 - Mihomo-based clients: **Mihomo > v1.19.21** 
 - Official Android client Sudodroid: **Sudodroid >= v0.2.4**
+- Official Desktop client sudoku4x4: **sudoku4x4 >= v0.0.9**
 
 ### Android
 - **CMFA (Clash Meta for Android / Mihomo kernel)**: https://github.com/MetaCubeX/ClashMetaForAndroid
@@ -45,20 +46,24 @@ Version requirements:
 
 ## Core Features
 
+### True Arbitrary Padding
+Traditional proxy protocols usually decide a `padding length`, and the receiver simply skips that many trailing bytes.
+Sudoku instead filters illegal bytes based on whether a Sudoku is uniquely solvable or solvable at all, which enables arbitrary padding at arbitrary positions without negotiating a padding length first. You only need to inject bytes that decode to invalid or non-unique Sudoku states, and the observable fingerprint is significantly smaller than in conventional padding schemes.
+
 ### Sudoku Steganography Algorithm
-Unlike traditional random noise obfuscation, this protocol uses various masking schemes to map data streams into complete ASCII printable characters. To packet capture tools, it appears as completely plaintext data. Alternatively, other masking schemes can be used to ensure the data stream has sufficiently low entropy.
+Unlike traditional random-noise obfuscation, this protocol uses multiple masking schemes to map data streams into full ASCII printable characters. In packet captures, it can appear as completely plaintext traffic in that specific mode. Alternatively, other masking schemes can keep the data stream entropy sufficiently low.
 *   **Dynamic Padding**: Inserts non-data bytes of arbitrary length at arbitrary positions at any time, hiding protocol characteristics.
 *   **Data Hiding**: The distribution characteristics of padding bytes match those of plaintext bytes (65%~100%* ASCII ratio), preventing identification of plaintext through data distribution analysis.
-*   **Low Information Entropy**: The overall byte Hamming weight is approximately 3.0* (in low entropy mode), which is lower than the 3.4~4.6 range mentioned in the GFW Report that typically triggers blocking.
-*   **User-defined Fingerprints**: You can freely choose your preferred byte style via ASCII/entropy preference and `custom_table`/`custom_tables` layouts. We don’t recommend a single “best” layout — diversity across users helps censorship resistance.
+*   **Low Information Entropy**: The overall byte Hamming weight is approximately 3.0/5.0* (in low-entropy mode), which is lower than the 3.4~4.6 range mentioned in the GFW Report that typically triggers blocking.
+*   **Dress It Yourself**: Users can freely define the byte style they want. We do not recommend any single layout, because mixed usage across users is exactly what improves censorship resistance.
 
 ---
 
-> *Note: A 100% ASCII ratio requires the `ASCII-preferred` mode; in `ENTROPY-preferred` mode, it is 65%. A Hamming weight of 3.0 requires `ENTROPY-preferred` mode; in `ASCII-preferred` mode, it is 4.0. Currently, there is no evidence indicating that either preference strategy possesses a distinct fingerprint.
+> *Note: Under `prefer_ascii`, the ASCII ratio is above 98%, and the Hamming weight is around 4. Under `prefer_entropy`, if no custom XVP is defined, the ASCII ratio is around 65% and the Hamming weight is around 3.
 
 ### Downlink Modes
-* **Pure Sudoku Downlink**: Default. Uses classic Sudoku puzzles in both directions.
-* **Bandwidth-Optimized Downlink**: Set `"enable_pure_downlink": false` to pack AEAD ciphertext into 6-bit groups (01xxxxxx / 0xx0xxxx) with padding reuse. This reduces downlink overhead while keeping uplink untouched. AEAD must be enabled for this mode. Padding pools and ASCII/entropy preferences still influence the emitted byte distribution (downlink is not “random noise”). In practice, downlink efficiency is typically around **80%**.
+* **Pure Sudoku Downlink**: Default mode. Both uplink and downlink use classic Sudoku-puzzle encoding.
+* **Bandwidth-Optimized Downlink**: After setting `enable_pure_downlink` to `false`, the downlink splits AEAD ciphertext into 6-bit chunks and reuses the existing padding pool together with the ASCII/entropy/customized preferences to reduce downlink overhead. The uplink still uses the native Sudoku protocol, and the downlink fingerprint remains aligned with the uplink. AEAD must be enabled for this mode.
 
 ### Security & Encryption
 Beneath the obfuscation layer, the protocol optionally employs AEAD to protect data integrity and confidentiality.
@@ -69,24 +74,24 @@ Beneath the obfuscation layer, the protocol optionally employs AEAD to protect d
 ### Defensive Fallback
 When the server detects illegal handshake requests, timed-out connections, or malformed data packets, it does not disconnect immediately. Instead, it seamlessly forwards the connection to a specified decoy address (such as an Nginx or Apache server). Probers will only see a standard web server response.
 
-#### Fallback as a Chained Proxy (Port Sharing)
-Fallback is not limited to “decoy web pages”. Since the server forwards the **raw TCP connection** and **replays bytes it already consumed during handshake**, `fallback_address` can also act as a simple **chained-proxy relay**.
+#### Used as a Chained Proxy / Port Multiplexing
+The main value of Fallback is not just “fall back to a web page”. A more common use is to treat it as a **chained proxy / relay**: use an “outer Sudoku server” as the entry point (for disguise, pressure absorption, and anti-probing), and when handshake validation fails, forward the connection to `fallback_address`; that `fallback_address` points to **another inner Sudoku server**, which then performs the real Sudoku handshake and forwarding.
 
-A common pattern is “Sudoku-to-Sudoku” chaining:
-1. **Inner (real) Sudoku server** listens on a private port (for example `0.0.0.0:8443`) with your real `key` / `aead` / `httpmask` settings.
-2. **Outer (entry) Sudoku server** listens on the public port and sets:
+Recommended setup (two-layer Sudoku):
+1. **Inner (real) Sudoku server**: listens on an internal port (for example `0.0.0.0:8443`) and uses the real `key` / `aead` / `httpmask` settings that match your actual clients.
+2. **Outer (entry) Sudoku server**: listens on the public port and sets:
    - `"suspicious_action": "fallback"`
-   - `"fallback_address": "x.x.x.x:8443"` (points to the inner server `ip:port`)
-   - either a **different (fake) `key`** from the inner server, or the **same key but different `ascii` preference**, so normal clients will fail the outer handshake and trigger fallback.
-3. **Client** connects to the outer public address, but uses the **inner server’s real key**.
+   - `"fallback_address": "x.x.x.x:8443"` (pointing to the inner `ip:port`)
+   - a **fake key different from the inner server’s key** (so normal clients fail the outer handshake and trigger fallback to the inner server), or the same key with a different ASCII preference.
+3. **Client**: sets `server_address` to the outer public address, but uses the **inner server’s real key**.
 
-In effect, the client “connects to the outer server”, but the actual Sudoku handshake and tunnel are completed by the inner server; the outer server just replays the already-read prefix and then forwards bytes in both directions.
-(~~Yes, the jump box is also a full Sudoku server.~~)
+This makes the client appear to “connect to the outer server”, while the actual handshake and data tunnel are completed by the inner server. The outer layer only replays the already-read prefix bytes to the inner layer in order, then forwards traffic in both directions.
+(~~Of course, the middle jump box is also a full Sudoku server.~~)
 
 ### Drawbacks (TODO)
 1.  **Packet Format**: TCP native; UDP is relayed via UoT (UDP-over-TCP) without exposing a raw UDP listener.
-2.  **Client Proxy**: Only supports SOCKS5/HTTP. No native TUN.
-3.  **Protocol Popularity**: Currently only official and mihomo support, no compatibility with other cores.
+2.  **Client Proxy**: Unless you use the official GUI clients listed above, the bare core only supports SOCKS5/HTTP. No native TUN.
+3.  **Protocol Popularity**: Official support currently exists only in Mihomo. Xray also has something called sudoku, but it is not compatible with the actual Sudoku protocol. There is also a sing-box branch under the official repository.
 
 
 
@@ -118,7 +123,7 @@ Run (auto-generate config on first start):
 docker run --rm -p 8080:8080 -p 8081:8081 -v sudoku-data:/etc/sudoku sudoku:local
 ```
 
-The container writes `/etc/sudoku/server.config.json` and `/etc/sudoku/keys.env` when they don’t exist, and prints the client key in logs.
+The container will automatically generate `/etc/sudoku/server.config.json` and `/etc/sudoku/keys.env` if they do not exist, and it will print the private key required by the client (`AVAILABLE_PRIVATE_KEY`) in the logs.
 
 If you prefer to bring your own config, mount it instead:
 ```bash
