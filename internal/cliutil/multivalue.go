@@ -24,6 +24,10 @@ func (f *MultiValue) Set(value string) error {
 	return nil
 }
 
+func (f *MultiValue) IsSet() bool {
+	return f != nil && f.set
+}
+
 func (f *MultiValue) Values(defaults ...string) []string {
 	if f.set {
 		return append([]string(nil), f.values...)

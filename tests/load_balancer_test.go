@@ -121,6 +121,29 @@ func TestBalancedDialerUDPUsesRoundRobin(t *testing.T) {
 	}
 }
 
+func TestBalancedDialerMakesDuplicateNodeIDsUnique(t *testing.T) {
+	first := &mockBalancedDialer{}
+	second := &mockBalancedDialer{}
+
+	lb, err := tunnel.NewBalancedDialer([]tunnel.BalancedNode{
+		{ID: "dup", Dialer: first},
+		{ID: "dup", Dialer: second},
+	})
+	if err != nil {
+		t.Fatalf("NewBalancedDialer error: %v", err)
+	}
+
+	conn, err := lb.DialWithStickyKey("example.com:443", "example.com")
+	if err != nil {
+		t.Fatalf("DialWithStickyKey error: %v", err)
+	}
+	_ = conn.Close()
+
+	if first.dials+second.dials != 1 {
+		t.Fatalf("unexpected total dials: first=%d second=%d", first.dials, second.dials)
+	}
+}
+
 func TestStickyKeyForAddress(t *testing.T) {
 	tests := []struct {
 		name string

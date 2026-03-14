@@ -97,6 +97,10 @@ func main() {
 		return
 	}
 
+	if configPaths.IsSet() && linkInputs.IsSet() {
+		logx.Fatalf("CLI", "Use either -c or -link, not both")
+	}
+
 	if links := linkInputs.Values(); len(links) > 0 {
 		configs, tableSets, err := cli.BuildClientConfigsFromLinks(links)
 		if err != nil {

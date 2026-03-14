@@ -39,6 +39,7 @@ func NewBalancedDialer(nodes []BalancedNode) (*BalancedDialer, error) {
 	}
 
 	cloned := make([]BalancedNode, 0, len(nodes))
+	usedIDs := make(map[string]int, len(nodes))
 	for i, node := range nodes {
 		if node.Dialer == nil {
 			return nil, fmt.Errorf("load balancer node %d has nil dialer", i)
@@ -46,6 +47,10 @@ func NewBalancedDialer(nodes []BalancedNode) (*BalancedDialer, error) {
 		id := strings.TrimSpace(node.ID)
 		if id == "" {
 			id = fmt.Sprintf("node-%d", i+1)
+		}
+		usedIDs[id]++
+		if usedIDs[id] > 1 {
+			id = fmt.Sprintf("%s#%d", id, usedIDs[id])
 		}
 		cloned = append(cloned, BalancedNode{
 			ID:     id,
