@@ -47,6 +47,9 @@ jobs:
         run: |
           set -euo pipefail
           FLAGS="-count=1 -shuffle=on -v"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            FLAGS="$FLAGS -p 1"
+          fi
           if [ "${{ matrix.race }}" = "true" ]; then
             FLAGS="$FLAGS -race"
           fi
