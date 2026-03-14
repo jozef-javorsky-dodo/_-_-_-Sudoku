@@ -24,6 +24,8 @@ import (
 	"os"
 
 	"github.com/SUDOKU-ASCII/sudoku/internal/app"
+	"github.com/SUDOKU-ASCII/sudoku/internal/cli"
+	"github.com/SUDOKU-ASCII/sudoku/internal/cliutil"
 	"github.com/SUDOKU-ASCII/sudoku/internal/config"
 	"github.com/SUDOKU-ASCII/sudoku/internal/reverse"
 	"github.com/SUDOKU-ASCII/sudoku/pkg/crypto"
@@ -31,11 +33,11 @@ import (
 )
 
 var (
-	configPath  = flag.String("c", "server.config.json", "Path to configuration file")
+	configPaths cliutil.MultiValue
 	testConfig  = flag.Bool("test", false, "Test configuration file and exit")
 	keygen      = flag.Bool("keygen", false, "Generate a new Ed25519 key pair")
 	more        = flag.String("more", "", "Generate more Private key (hex) for split key generations")
-	linkInput   = flag.String("link", "", "Start client directly from a sudoku:// short link")
+	linkInputs  cliutil.MultiValue
 	exportLink  = flag.Bool("export-link", false, "Print sudoku:// short link generated from the config")
 	publicHost  = flag.String("public-host", "", "Advertised server host for short link generation (server mode); supports host or host:port")
 	setupWizard = flag.Bool("tui", false, "Launch interactive TUI to create config before starting")
@@ -44,6 +46,11 @@ var (
 	revListen   = flag.String("rev-listen", "", "Local TCP listen address for reverse forwarder (e.g., 127.0.0.1:2222)")
 	revInsecure = flag.Bool("rev-insecure", false, "Skip TLS verification for wss reverse dial (testing only)")
 )
+
+func init() {
+	flag.Var(&configPaths, "c", "Path to configuration file (repeat or comma-separate for multiple client configs)")
+	flag.Var(&linkInputs, "link", "Start client directly from sudoku:// short link(s) (repeat or comma-separate)")
+}
 
 func main() {
 	flag.Parse()
@@ -90,21 +97,17 @@ func main() {
 		return
 	}
 
-	if *linkInput != "" {
-		cfg, err := config.BuildConfigFromShortLink(*linkInput)
+	if links := linkInputs.Values(); len(links) > 0 {
+		configs, tableSets, err := cli.BuildClientConfigsFromLinks(links)
 		if err != nil {
-			logx.Fatalf("CLI", "Failed to parse short link: %v", err)
+			logx.Fatalf("CLI", "Failed to build client configs from links: %v", err)
 		}
-		tables, err := app.BuildTables(cfg)
-		if err != nil {
-			logx.Fatalf("CLI", "Failed to build table: %v", err)
-		}
-		app.RunClient(cfg, tables)
+		app.RunClientPool(configs, tableSets)
 		return
 	}
 
 	if *setupWizard {
-		result, err := app.RunSetupWizard(*configPath, *publicHost)
+		result, err := cli.RunSetupWizard(configPaths.First("server.config.json"), *publicHost)
 		if err != nil {
 			logx.Fatalf("CLI", "Setup failed: %v", err)
 		}
@@ -120,37 +123,51 @@ func main() {
 		return
 	}
 
-	cfg, err := config.Load(*configPath)
+	paths := configPaths.Values("server.config.json")
+	configs, err := cli.LoadConfigs(paths)
 	if err != nil {
-		logx.Fatalf("CLI", "Failed to load config from %s: %v", *configPath, err)
+		logx.Fatalf("CLI", "Failed to load config(s): %v", err)
 	}
+	cfg := configs[0]
 
 	if *testConfig {
-		logx.Infof("CLI", "Configuration %s is valid.", *configPath)
-		logx.Infof("CLI", "Mode: %s", cfg.Mode)
-		if cfg.Mode == "client" {
-			logx.Infof("CLI", "Rules: %d URLs configured", len(cfg.RuleURLs))
+		for i, loaded := range configs {
+			logx.Infof("CLI", "Configuration %s is valid.", paths[i])
+			logx.Infof("CLI", "Mode: %s", loaded.Mode)
+			if loaded.Mode == "client" {
+				logx.Infof("CLI", "Rules: %d URLs configured", len(loaded.RuleURLs))
+			}
 		}
 		os.Exit(0)
 	}
 
 	if *exportLink {
-		link, err := config.BuildShortLinkFromConfig(cfg, *publicHost)
-		if err != nil {
-			logx.Fatalf("CLI", "Export short link failed: %v", err)
+		for i, loaded := range configs {
+			link, err := config.BuildShortLinkFromConfig(loaded, *publicHost)
+			if err != nil {
+				logx.Fatalf("CLI", "Export short link failed for %s: %v", paths[i], err)
+			}
+			logx.Infof("CLI", "Short link (%s): %s", paths[i], link)
 		}
-		logx.Infof("CLI", "Short link: %s", link)
 		os.Exit(0)
+	}
+
+	if cfg.Mode == "client" {
+		tableSets, err := cli.BuildClientTableSets(configs)
+		if err != nil {
+			logx.Fatalf("CLI", "Failed to build client table sets: %v", err)
+		}
+		app.RunClientPool(configs, tableSets)
+		return
+	}
+
+	if len(configs) > 1 {
+		logx.Fatalf("CLI", "Multiple -c values are supported only in client mode")
 	}
 
 	tables, err := app.BuildTables(cfg)
 	if err != nil {
 		logx.Fatalf("CLI", "Failed to build table: %v", err)
 	}
-
-	if cfg.Mode == "client" {
-		app.RunClient(cfg, tables)
-	} else {
-		app.RunServer(cfg, tables)
-	}
+	app.RunServer(cfg, tables)
 }

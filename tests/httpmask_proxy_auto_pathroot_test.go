@@ -11,9 +11,19 @@ import (
 )
 
 func TestHTTPMaskProxy_AutoPathRoot(t *testing.T) {
+	runHTTPMaskAutoPathRootProxyCase(t, "httpmask-auto-pathroot-ok")
+}
+
+func TestMatrixSmoke_HTTPMaskAutoPathRoot(t *testing.T) {
+	runHTTPMaskAutoPathRootProxyCase(t, "matrix-smoke-app-httpmask-ok")
+}
+
+func runHTTPMaskAutoPathRootProxyCase(t *testing.T, wantBody string) {
+	t.Helper()
+
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "httpmask-auto-pathroot-ok")
+		_, _ = io.WriteString(w, wantBody)
 	}))
 	defer origin.Close()
 
@@ -67,7 +77,7 @@ func TestHTTPMaskProxy_AutoPathRoot(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("bad status: %s body=%q", resp.Status, string(body))
 	}
-	if string(body) != "httpmask-auto-pathroot-ok" {
+	if string(body) != wantBody {
 		t.Fatalf("unexpected body: %q", string(body))
 	}
 }

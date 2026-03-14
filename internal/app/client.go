@@ -27,6 +27,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/SUDOKU-ASCII/sudoku/internal/config"
@@ -86,57 +87,56 @@ func normalizeClientKey(cfg *config.Config) ([]byte, bool, error) {
 }
 
 func RunClient(cfg *config.Config, tables []*sudoku.Table) {
+	RunClientPool([]*config.Config{cfg}, [][]*sudoku.Table{tables})
+}
+
+func RunClientPool(configs []*config.Config, tableSets [][]*sudoku.Table) {
 	logx.InstallStd()
-	var dialer tunnel.Dialer
 
-	privateKeyBytes, changed, err := normalizeClientKey(cfg)
+	runtimes, err := buildClientRuntimes(configs, tableSets)
 	if err != nil {
-		logx.Fatalf("Client", "Failed to process key: %v", err)
+		logx.Fatalf("Client", "Failed to initialize client nodes: %v", err)
 	}
-	if changed {
-		logx.Infof("Init", "Derived Public Key: %s", cfg.Key)
-	}
-
-	if tables == nil || len(tables) == 0 || changed {
-		var err error
-		tables, err = BuildTables(cfg)
-		if err != nil {
-			logx.Fatalf("Init", "Failed to build table(s): %v", err)
+	primary := runtimes[0]
+	for _, rt := range runtimes[1:] {
+		if rt.Config.LocalPort != primary.Config.LocalPort {
+			logx.Infof("Client", "Ignoring local_port=%d on %s; mixed listener stays on first local_port=%d",
+				rt.Config.LocalPort, rt.NodeID, primary.Config.LocalPort)
+		}
+		if rt.Config.ProxyMode != primary.Config.ProxyMode {
+			logx.Infof("Client", "Proxy mode on %s is %q, but runtime routing uses first config mode %q",
+				rt.NodeID, rt.Config.ProxyMode, primary.Config.ProxyMode)
 		}
 	}
+
 	resolver, err := dnsutil.NewResolver(dnsutil.RecommendedClientOptions())
 	if err != nil {
 		logx.Fatalf("Init", "Failed to build DNS resolver: %v", err)
 	}
 
-	baseDialer := tunnel.BaseDialer{
-		Config:     cfg,
-		Tables:     tables,
-		PrivateKey: privateKeyBytes,
+	dialer, err := buildOutboundDialer(runtimes)
+	if err != nil {
+		logx.Fatalf("Init", "Failed to build outbound dialer: %v", err)
 	}
 
-	if cfg.HTTPMaskSessionMuxEnabled() {
-		dialer = &tunnel.MuxDialer{BaseDialer: baseDialer}
-		logx.Infof("Init", "Enabled HTTPMask session mux (single tunnel, multi-target)")
-	} else {
-		dialer = &tunnel.StandardDialer{
-			BaseDialer: baseDialer,
-		}
-	}
-
-	startReverseClient(cfg, &baseDialer)
+	startReverseClient(primary.Config, &primary.BaseDialer)
 
 	var geoMgr *geodata.Manager
-	if cfg.ProxyMode == "pac" {
-		geoMgr = geodata.GetInstance(cfg.RuleURLs)
+	if primary.Config.ProxyMode == "pac" {
+		geoMgr = geodata.GetInstance(primary.Config.RuleURLs)
 	}
 
-	l, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.LocalPort))
+	l, err := net.Listen("tcp", fmt.Sprintf(":%d", primary.Config.LocalPort))
 	if err != nil {
 		logx.Fatalf("Client", "%v", err)
 	}
+
+	nodeLabels := make([]string, 0, len(runtimes))
+	for _, rt := range runtimes {
+		nodeLabels = append(nodeLabels, rt.NodeID)
+	}
 	logx.Infof("Client", "Client (Mixed) on :%d -> %s | Mode: %s | Rules: %d",
-		cfg.LocalPort, cfg.ServerAddress, cfg.ProxyMode, len(cfg.RuleURLs))
+		primary.Config.LocalPort, strings.Join(nodeLabels, ", "), primary.Config.ProxyMode, len(primary.Config.RuleURLs))
 
 	// Graceful shutdown on SIGINT / SIGTERM.
 	sigCh := make(chan os.Signal, 1)
@@ -150,8 +150,8 @@ func RunClient(cfg *config.Config, tables []*sudoku.Table) {
 	}()
 
 	var primaryTable *sudoku.Table
-	if len(tables) > 0 {
-		primaryTable = tables[0]
+	if len(primary.Tables) > 0 {
+		primaryTable = primary.Tables[0]
 	}
 	for {
 		c, err := l.Accept()
@@ -166,7 +166,7 @@ func RunClient(cfg *config.Config, tables []*sudoku.Table) {
 				continue
 			}
 		}
-		go handleMixedConn(c, cfg, primaryTable, geoMgr, dialer, resolver)
+		go handleMixedConn(c, primary.Config, primaryTable, geoMgr, dialer, resolver)
 	}
 }
 

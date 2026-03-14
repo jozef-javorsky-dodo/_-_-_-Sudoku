@@ -47,7 +47,7 @@ func dialTarget(network string, src net.Addr, destAddrStr string, destIP net.IP,
 	logRoute(network, src, destAddrStr, decision.match, decision.shouldProxy)
 
 	if decision.shouldProxy {
-		conn, err := dialer.Dial(destAddrStr)
+		conn, err := dialProxyTarget(dialer, destAddrStr, tunnel.StickyKeyForAddress(destAddrStr, destIP))
 		if err != nil {
 			logx.Warnf("Proxy", "Dial Failed: %v", err)
 			return nil, false
@@ -75,6 +75,13 @@ func dialTarget(network string, src net.Addr, destAddrStr string, destIP net.IP,
 		return nil, false
 	}
 	return dConn, true
+}
+
+func dialProxyTarget(dialer tunnel.Dialer, destAddrStr string, stickyKey string) (net.Conn, error) {
+	if stickyDialer, ok := dialer.(tunnel.StickyDialer); ok {
+		return stickyDialer.DialWithStickyKey(destAddrStr, stickyKey)
+	}
+	return dialer.Dial(destAddrStr)
 }
 
 func resolveDirectAddr(resolver *dnsutil.Resolver, addr string) (string, error) {
