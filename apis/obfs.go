@@ -41,9 +41,6 @@ func buildClientObfsConn(raw net.Conn, cfg *ProtocolConfig, table *sudoku.Table)
 
 func buildServerObfsConn(raw net.Conn, cfg *ProtocolConfig, table *sudoku.Table, record bool) (*sudoku.Conn, net.Conn) {
 	uplink := sudoku.NewConn(raw, table, cfg.PaddingMin, cfg.PaddingMax, record)
-	if cfg.EnablePureDownlink {
-		return uplink, uplink
-	}
-	packed := sudoku.NewPackedConn(raw, table, cfg.PaddingMin, cfg.PaddingMax)
-	return uplink, sudoku.NewDirectionalConn(raw, uplink, packed, packed.Flush)
+	downlink, closers := sudoku.NewServerDownlinkWriter(raw, table, cfg.PaddingMin, cfg.PaddingMax, cfg.EnablePureDownlink)
+	return uplink, sudoku.NewDirectionalConn(raw, uplink, downlink, closers...)
 }

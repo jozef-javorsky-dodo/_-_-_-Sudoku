@@ -86,10 +86,6 @@ func normalizeClientKey(cfg *config.Config) ([]byte, bool, error) {
 	return privateKeyBytes, true, nil
 }
 
-func RunClient(cfg *config.Config, tables []*sudoku.Table) {
-	RunClientPool([]*config.Config{cfg}, [][]*sudoku.Table{tables})
-}
-
 func RunClientPool(configs []*config.Config, tableSets [][]*sudoku.Table) {
 	logx.InstallStd()
 

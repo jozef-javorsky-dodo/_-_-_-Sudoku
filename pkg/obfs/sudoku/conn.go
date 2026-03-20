@@ -143,33 +143,7 @@ func (sc *Conn) Write(p []byte) (n int, err error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-
-	outCapacity := len(p) * 6
-	out := make([]byte, 0, outCapacity)
-	pads := sc.table.PaddingPool
-	padLen := len(pads)
-
-	for _, b := range p {
-		if shouldPad(sc.rng, sc.paddingThreshold) {
-			out = append(out, pads[sc.rng.Intn(padLen)])
-		}
-
-		puzzles := sc.table.EncodeTable[b]
-		puzzle := puzzles[sc.rng.Intn(len(puzzles))]
-
-		perm := perm4[sc.rng.Intn(len(perm4))]
-		for _, idx := range perm {
-			if shouldPad(sc.rng, sc.paddingThreshold) {
-				out = append(out, pads[sc.rng.Intn(padLen)])
-			}
-			out = append(out, puzzle[idx])
-		}
-	}
-
-	if shouldPad(sc.rng, sc.paddingThreshold) {
-		out = append(out, pads[sc.rng.Intn(padLen)])
-	}
-
+	out := encodeSudokuPayload(sc.table, sc.rng, sc.paddingThreshold, p)
 	return len(p), connutil.WriteFull(sc.Conn, out)
 }
 

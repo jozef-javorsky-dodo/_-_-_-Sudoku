@@ -480,7 +480,7 @@ func startSudokuClient(t testing.TB, cfg *config.Config) {
 	if err != nil {
 		t.Fatalf("build table: %v", err)
 	}
-	go app.RunClient(cfg, []*sudoku.Table{table})
+	go app.RunClientPool([]*config.Config{cfg}, [][]*sudoku.Table{{table}})
 	waitForPort(t, cfg.LocalPort)
 }
 

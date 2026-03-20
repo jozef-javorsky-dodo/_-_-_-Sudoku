@@ -45,9 +45,6 @@ func buildObfsConnForClient(raw net.Conn, table *sudoku.Table, cfg *config.Confi
 // It returns the reader Sudoku connection (for fallback recording) and the composed net.Conn.
 func buildObfsConnForServer(raw net.Conn, table *sudoku.Table, cfg *config.Config, record bool) (*sudoku.Conn, net.Conn) {
 	uplinkSudoku := sudoku.NewConn(raw, table, cfg.PaddingMin, cfg.PaddingMax, record)
-	if cfg.EnablePureDownlink {
-		return uplinkSudoku, uplinkSudoku
-	}
-	packed := sudoku.NewPackedConn(raw, table, cfg.PaddingMin, cfg.PaddingMax)
-	return uplinkSudoku, sudoku.NewDirectionalConn(raw, uplinkSudoku, packed, packed.Flush)
+	downlink, closers := sudoku.NewServerDownlinkWriter(raw, table, cfg.PaddingMin, cfg.PaddingMax, cfg.EnablePureDownlink)
+	return uplinkSudoku, sudoku.NewDirectionalConn(raw, uplinkSudoku, downlink, closers...)
 }

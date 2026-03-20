@@ -3,6 +3,12 @@
 ## Unreleased
 - TBD
 
+## v0.3.7（2026-03-21）
+- `sudoku/downlink`: 新增服务端下行随机 inter-packet padding 注入，按写入规模和低频概率偶发插入纯 padding 小包，兼容旧端直接忽略，并同时覆盖 pure / packed 下行路径。
+- `sudoku/downlink`: 收敛服务端 pure / packed 下行装配逻辑，复用统一 writer 构造；补充 pure / packed 兼容回归测试，确认注入 padding 后解码结果不变。
+- `cleanup`: 继续移除项目内生产路径不可达的旧包装与死代码，包括 HTTPMask token 包装、内部客户端便捷包装、未使用的 DNS/log 辅助接口，以及已被真实生产路径替代的 geodata / httpmask 旧入口。
+- `tests`: 对齐当前生产实现，测试直接覆盖 `MatchCN`、`WriteRandomRequestHeaderWithPathRoot` 与当前下行路径，减少围绕死代码的过时测试。
+
 ## v0.3.6（2026-03-15）
 - `client/lb`: 客户端新增多节点负载均衡：`-c` / `-link` 支持多值同时生效，mixed 监听端口固定取首个配置的 `local_port`，同站点目标按 Rendezvous Hashing 粘性选路，并在节点失败时按次优节点回退。
 - `cli`: 交互式 setup wizard 与客户端配置装配逻辑迁移到独立 `internal/cli`，入口职责更清晰；新增 `internal/cliutil` 复用多值 flag 解析，减少 `cmd/sudoku-tunnel` 主入口样板代码。

@@ -110,17 +110,6 @@ func newResolver(ttl time.Duration, fn lookupIPFunc) *Resolver {
 	}
 }
 
-func ConfigureDefault(opts Options) error {
-	r, err := NewResolver(opts)
-	if err != nil {
-		return err
-	}
-	defaultResolverMu.Lock()
-	defaultResolver = r
-	defaultResolverMu.Unlock()
-	return nil
-}
-
 func Default() *Resolver {
 	defaultResolverMu.RLock()
 	r := defaultResolver

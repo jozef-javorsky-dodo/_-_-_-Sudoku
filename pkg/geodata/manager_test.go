@@ -36,10 +36,10 @@ func TestIsCN_HostPortMatchesDomainRules(t *testing.T) {
 		domainSuffix: map[string]struct{}{"bilibili.com": {}},
 	}
 
-	if !m.IsCN("www.bilibili.com:443", nil) {
+	if ok, _ := m.MatchCN("www.bilibili.com:443", nil); !ok {
 		t.Fatalf("expected suffix domain match for host:port")
 	}
-	if !m.IsCN("api.bilibili.com:443", nil) {
+	if ok, _ := m.MatchCN("api.bilibili.com:443", nil); !ok {
 		t.Fatalf("expected exact domain match for host:port")
 	}
 }
@@ -79,7 +79,7 @@ func TestIsCN_IPv6RuleMatch(t *testing.T) {
 	if ip == nil {
 		t.Fatalf("parse test ipv6 failed")
 	}
-	if !m.IsCN("video.example:443", ip) {
+	if ok, _ := m.MatchCN("video.example:443", ip); !ok {
 		t.Fatalf("expected ipv6 rule match")
 	}
 }
@@ -102,7 +102,7 @@ func TestParseRule_IPv6DoesNotPolluteIPv4Ranges(t *testing.T) {
 	if ipv4 == nil {
 		t.Fatalf("parse test ipv4 failed")
 	}
-	if m.IsCN("36.112.0.1:443", ipv4) {
+	if ok, _ := m.MatchCN("36.112.0.1:443", ipv4); ok {
 		t.Fatalf("unexpected ipv4 match from ipv6-only rule")
 	}
 }
@@ -191,15 +191,15 @@ func TestUpdate_AppliesEachSourceIncrementally(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if m.IsCN("www.first.cn:443", nil) {
+		if ok, _ := m.MatchCN("www.first.cn:443", nil); ok {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !m.IsCN("www.first.cn:443", nil) {
+	if ok, _ := m.MatchCN("www.first.cn:443", nil); !ok {
 		t.Fatalf("expected first source to be applied before second source completed")
 	}
-	if m.IsCN("www.second.cn:443", nil) {
+	if ok, _ := m.MatchCN("www.second.cn:443", nil); ok {
 		t.Fatalf("second source should not be applied before its download completes")
 	}
 
@@ -211,7 +211,7 @@ func TestUpdate_AppliesEachSourceIncrementally(t *testing.T) {
 		t.Fatal("update did not finish")
 	}
 
-	if !m.IsCN("www.second.cn:443", nil) {
+	if ok, _ := m.MatchCN("www.second.cn:443", nil); !ok {
 		t.Fatalf("expected second source to be applied after its download completed")
 	}
 }

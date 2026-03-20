@@ -383,50 +383,6 @@ func (m *Manager) MatchCN(host string, ip net.IP) (bool, Match) {
 	return false, Match{}
 }
 
-// IsCN checks whether the target matches CN rules (domain first, then IP).
-// host can be a domain name or an IP string.
-func (m *Manager) IsCN(host string, ip net.IP) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	// 0. Check if it's a local network address - always treat as "CN" (local)
-	if m.isLocalNetwork(ip) {
-		return true
-	}
-
-	// 1. Domain matching
-	host = normalizeLookupHost(host)
-	hostIP := net.ParseIP(host)
-	if host != "" && (hostIP == nil || ip == nil || !hostIP.Equal(ip)) {
-		domain := host
-
-		// Exact match
-		if _, ok := m.domainExact[domain]; ok {
-			return true
-		}
-
-		// Suffix matching
-		// Strategy: Check level by level. E.g., www.baidu.com -> check www.baidu.com, baidu.com, com
-		parts := strings.Split(domain, ".")
-		for i := 0; i < len(parts); i++ {
-			suffix := strings.Join(parts[i:], ".")
-			if _, ok := m.domainSuffix[suffix]; ok {
-				return true
-			}
-		}
-	}
-
-	// 2. IP matching
-	if ip != nil {
-		if ip.To4() != nil {
-			return matchIPv4Range(m.ipRanges, ip)
-		}
-		return matchIPv6Range(m.ipv6Ranges, ip)
-	}
-
-	return false
-}
-
 func ipToUint32(ip net.IP) uint32 {
 	if len(ip) == 16 {
 		return binary.BigEndian.Uint32(ip[12:16])
