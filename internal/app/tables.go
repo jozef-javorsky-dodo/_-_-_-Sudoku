@@ -34,10 +34,17 @@ func BuildTables(cfg *config.Config) ([]*sudoku.Table, error) {
 	if len(patterns) == 0 {
 		patterns = []string{""}
 	}
-	// Server-side convenience: when custom tables rotation is enabled, also accept the default table.
-	// This avoids forcing clients to configure a custom layout in lockstep while keeping rotation available.
+	// Server-side convenience: when probe-based custom table rotation is enabled, also accept the default table.
+	// For directional modes whose uplink is ASCII, the server cannot safely infer a rotated downlink custom table,
+	// so prepending the default table would accidentally discard the configured custom pattern.
 	if cfg != nil && cfg.Mode == "server" && len(patterns) > 0 && strings.TrimSpace(patterns[0]) != "" {
-		patterns = append([]string{""}, patterns...)
+		asciiMode, err := sudoku.ParseASCIIMode(cfg.ASCII)
+		if err != nil {
+			return nil, err
+		}
+		if asciiMode.Uplink == "entropy" {
+			patterns = append([]string{""}, patterns...)
+		}
 	}
 
 	tableSet, err := sudoku.NewTableSet(cfg.Key, cfg.ASCII, patterns)
