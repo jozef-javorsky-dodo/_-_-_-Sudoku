@@ -9,8 +9,8 @@ func TestNewTableSetDirectionalProbeRotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build table set failed: %v", err)
 	}
-	if len(ts.Tables) != 1 {
-		t.Fatalf("expected a single probe-safe table, got %d", len(ts.Tables))
+	if len(ts.Tables) != len(patterns) {
+		t.Fatalf("expected full rotation set, got %d", len(ts.Tables))
 	}
 	if ts.Tables[0].layout.name != "ascii" {
 		t.Fatalf("expected ascii uplink table, got %s", ts.Tables[0].layout.name)

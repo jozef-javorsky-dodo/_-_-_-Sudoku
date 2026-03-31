@@ -193,6 +193,16 @@ func TestHTTPMaskRTTParity(t *testing.T) {
 	}
 }
 
+func TestDirectionalCustomTableSetRetainsRotation(t *testing.T) {
+	tables, err := getTables("matrix-smoke-key", "up_ascii_down_entropy", "custom7")
+	if err != nil {
+		t.Fatalf("get tables failed: %v", err)
+	}
+	if len(tables) != 7 {
+		t.Fatalf("expected 7 directional tables, got %d", len(tables))
+	}
+}
+
 func trimmedMeanDuration(samples []time.Duration) time.Duration {
 	if len(samples) == 0 {
 		return 0

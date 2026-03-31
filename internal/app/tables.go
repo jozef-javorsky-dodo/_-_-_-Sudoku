@@ -34,9 +34,10 @@ func BuildTables(cfg *config.Config) ([]*sudoku.Table, error) {
 	if len(patterns) == 0 {
 		patterns = []string{""}
 	}
-	// Server-side convenience: when probe-based custom table rotation is enabled, also accept the default table.
-	// For directional modes whose uplink is ASCII, the server cannot safely infer a rotated downlink custom table,
-	// so prepending the default table would accidentally discard the configured custom pattern.
+	// Server-side convenience: when legacy probe-based custom table rotation is enabled, also accept the default table.
+	// Directional modes with ASCII uplink now rely on a KIP table hint for downlink selection; legacy clients without
+	// that hint still cannot disambiguate custom rotations, so prepending the default table would mask the configured
+	// custom pattern instead of honoring it.
 	if cfg != nil && cfg.Mode == "server" && len(patterns) > 0 && strings.TrimSpace(patterns[0]) != "" {
 		asciiMode, err := sudoku.ParseASCIIMode(cfg.ASCII)
 		if err != nil {

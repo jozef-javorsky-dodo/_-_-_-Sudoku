@@ -101,7 +101,7 @@ func buildEarlyServerObfsConn(raw net.Conn, cfg EarlyCodecConfig, table *sudoku.
 	return conn
 }
 
-func NewEarlyClientState(cfg EarlyCodecConfig, table *sudoku.Table, userHash [kipHelloUserHashSize]byte, feats uint32) (*EarlyClientState, error) {
+func NewEarlyClientState(cfg EarlyCodecConfig, table *sudoku.Table, tableHint uint32, hasTableHint bool, userHash [kipHelloUserHashSize]byte, feats uint32) (*EarlyClientState, error) {
 	if table == nil {
 		return nil, fmt.Errorf("nil table")
 	}
@@ -120,11 +120,13 @@ func NewEarlyClientState(cfg EarlyCodecConfig, table *sudoku.Table, userHash [ki
 	var clientPub [kipHelloPubSize]byte
 	copy(clientPub[:], ephemeral.PublicKey().Bytes())
 	hello := &KIPClientHello{
-		Timestamp: time.Now(),
-		UserHash:  userHash,
-		Nonce:     nonce,
-		ClientPub: clientPub,
-		Features:  feats,
+		Timestamp:    time.Now(),
+		UserHash:     userHash,
+		Nonce:        nonce,
+		ClientPub:    clientPub,
+		Features:     feats,
+		TableHint:    tableHint,
+		HasTableHint: hasTableHint,
 	}
 
 	mem := newEarlyMemoryConn(nil)
@@ -205,8 +207,8 @@ func (s *EarlyClientState) Ready() bool {
 	return s != nil && s.responseSet
 }
 
-func NewHTTPMaskClientEarlyHandshake(cfg EarlyCodecConfig, table *sudoku.Table, userHash [kipHelloUserHashSize]byte, feats uint32) (*httpmask.ClientEarlyHandshake, error) {
-	state, err := NewEarlyClientState(cfg, table, userHash, feats)
+func NewHTTPMaskClientEarlyHandshake(cfg EarlyCodecConfig, table *sudoku.Table, tableHint uint32, hasTableHint bool, userHash [kipHelloUserHashSize]byte, feats uint32) (*httpmask.ClientEarlyHandshake, error) {
+	state, err := NewEarlyClientState(cfg, table, tableHint, hasTableHint, userHash, feats)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +231,7 @@ func ProcessEarlyClientPayload(cfg EarlyCodecConfig, tables []*sudoku.Table, pay
 	var firstErr error
 	for _, table := range tables {
 		for _, uplinkMode := range []ObfsUplinkMode{ObfsUplinkPure, ObfsUplinkPacked} {
-			state, err := processEarlyClientPayloadForTable(cfg, table, uplinkMode, payload, allowReplay)
+			state, err := processEarlyClientPayloadForTable(cfg, tables, table, uplinkMode, payload, allowReplay)
 			if err == nil {
 				return state, nil
 			}
@@ -244,7 +246,7 @@ func ProcessEarlyClientPayload(cfg EarlyCodecConfig, tables []*sudoku.Table, pay
 	return nil, firstErr
 }
 
-func processEarlyClientPayloadForTable(cfg EarlyCodecConfig, table *sudoku.Table, uplinkMode ObfsUplinkMode, payload []byte, allowReplay ReplayAllowFunc) (*EarlyServerState, error) {
+func processEarlyClientPayloadForTable(cfg EarlyCodecConfig, tables []*sudoku.Table, table *sudoku.Table, uplinkMode ObfsUplinkMode, payload []byte, allowReplay ReplayAllowFunc) (*EarlyServerState, error) {
 	mem := newEarlyMemoryConn(payload)
 	obfsConn := buildEarlyServerObfsConn(mem, cfg, table, uplinkMode)
 	pskC2S, pskS2C := DerivePSKDirectionalBases(cfg.PSK)
@@ -272,6 +274,10 @@ func processEarlyClientPayloadForTable(cfg EarlyCodecConfig, table *sudoku.Table
 	if allowReplay != nil && !allowReplay(userHash, ch.Nonce, time.Now()) {
 		return nil, fmt.Errorf("replay detected")
 	}
+	resolvedTable, err := ResolveClientHelloTable(table, tables, ch)
+	if err != nil {
+		return nil, fmt.Errorf("resolve table hint failed: %w", err)
+	}
 
 	curve := ecdh.X25519()
 	serverEphemeral, err := curve.GenerateKey(rand.Reader)
@@ -296,7 +302,7 @@ func processEarlyClientPayloadForTable(cfg EarlyCodecConfig, table *sudoku.Table
 	}
 
 	respMem := newEarlyMemoryConn(nil)
-	respObfs := buildEarlyServerObfsConn(respMem, cfg, table, uplinkMode)
+	respObfs := buildEarlyServerObfsConn(respMem, cfg, resolvedTable, uplinkMode)
 	respConn, err := crypto.NewRecordConn(respObfs, cfg.AEAD, pskS2C, pskC2S)
 	if err != nil {
 		return nil, fmt.Errorf("server early crypto setup failed: %w", err)
@@ -309,7 +315,7 @@ func processEarlyClientPayloadForTable(cfg EarlyCodecConfig, table *sudoku.Table
 		ResponsePayload: respMem.Written(),
 		UserHash:        userHash,
 		cfg:             cfg,
-		table:           table,
+		table:           resolvedTable,
 		uplinkMode:      uplinkMode,
 		sessionC2S:      sessionC2S,
 		sessionS2C:      sessionS2C,

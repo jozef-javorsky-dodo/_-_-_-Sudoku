@@ -60,6 +60,14 @@ func TestCustomLayoutAsciiPriority(t *testing.T) {
 	if table.layout.name != "ascii" {
 		t.Fatalf("expected ascii layout, got %s", table.layout.name)
 	}
+
+	defaultTable, err := NewTableWithCustom("seed-custom", "prefer_ascii", "")
+	if err != nil {
+		t.Fatalf("failed to build default ascii table: %v", err)
+	}
+	if table.Hint() != defaultTable.Hint() {
+		t.Fatalf("ascii hint should ignore custom pattern: got %d want %d", table.Hint(), defaultTable.Hint())
+	}
 }
 
 func TestCustomLayoutDirectionalModes(t *testing.T) {
@@ -87,6 +95,14 @@ func TestCustomLayoutDirectionalModes(t *testing.T) {
 		t.Fatalf("expected distinct ascii downlink table")
 	} else if !peer.IsASCII || peer.layout.name != "ascii" {
 		t.Fatalf("expected ascii downlink layout, got %s", peer.layout.name)
+	}
+
+	alt, err := NewTableWithCustom("seed-custom", "up_ascii_down_entropy", "vxpvxvvp")
+	if err != nil {
+		t.Fatalf("failed to build alternate directional table: %v", err)
+	}
+	if table.Hint() == alt.Hint() {
+		t.Fatalf("directional entropy downlink hint should change with custom pattern")
 	}
 }
 

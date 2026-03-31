@@ -29,9 +29,6 @@ type TableSet struct {
 
 // NewTableSet builds one or more tables from key/mode and a list of custom X/P/V patterns.
 // If patterns is empty, it builds a single default table (customPattern="").
-// Directional modes whose uplink is ASCII cannot safely rotate multiple custom tables because
-// the server cannot infer the selected downlink pattern from the client probe; those collapse
-// to the first custom pattern.
 func NewTableSet(key string, mode string, patterns []string) (*TableSet, error) {
 	if len(patterns) == 0 {
 		t, err := NewTableWithCustom(key, mode, "")
@@ -39,14 +36,6 @@ func NewTableSet(key string, mode string, patterns []string) (*TableSet, error) 
 			return nil, err
 		}
 		return &TableSet{Tables: []*Table{t}}, nil
-	}
-
-	asciiMode, err := ParseASCIIMode(mode)
-	if err != nil {
-		return nil, err
-	}
-	if !asciiMode.supportsProbeBasedRotation() {
-		patterns = patterns[:1]
 	}
 
 	tables := make([]*Table, 0, len(patterns))

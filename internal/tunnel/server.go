@@ -311,6 +311,16 @@ func HandshakeAndUpgradeWithTablesMeta(rawConn net.Conn, cfg *config.Config, tab
 	if !globalHandshakeReplay.allow(meta.UserHash, ch.Nonce, time.Now()) {
 		return nil, nil, &SuspiciousError{Err: fmt.Errorf("replay"), Conn: &prefixedRecorderConn{Conn: sConn, prefix: httpHeaderData}}
 	}
+	resolvedTable, err := ResolveClientHelloTable(selected.Table, tables, ch)
+	if err != nil {
+		return nil, nil, &SuspiciousError{Err: fmt.Errorf("resolve table hint failed: %w", err), Conn: &prefixedRecorderConn{Conn: sConn, prefix: httpHeaderData}}
+	}
+	if resolvedTable != selected.Table {
+		downlink, closers := sudoku.NewServerDownlinkWriter(baseConn, resolvedTable.OppositeDirection(), cfg.PaddingMin, cfg.PaddingMax, cfg.EnablePureDownlink)
+		if !SwitchConnDownlinkWriter(obfsConn, downlink, closers...) {
+			return nil, nil, &SuspiciousError{Err: fmt.Errorf("switch downlink writer failed"), Conn: &prefixedRecorderConn{Conn: sConn, prefix: httpHeaderData}}
+		}
+	}
 
 	curve := ecdh.X25519()
 	serverEphemeral, err := curve.GenerateKey(rand.Reader)

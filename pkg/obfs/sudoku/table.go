@@ -24,6 +24,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/SUDOKU-ASCII/sudoku/pkg/logx"
@@ -40,6 +41,7 @@ type Table struct {
 	IsASCII     bool // Marks the current encoding mode
 	layout      *byteLayout
 	opposite    *Table
+	hint        uint32
 }
 
 // NewTable initializes the obfuscation tables with built-in layouts.
@@ -62,20 +64,25 @@ func NewTableWithCustom(key string, mode string, customPattern string) (*Table, 
 	if err != nil {
 		return nil, err
 	}
+	uplinkPattern := customPatternForToken(asciiMode.Uplink, customPattern)
+	downlinkPattern := customPatternForToken(asciiMode.Downlink, customPattern)
+	hint := tableHintFingerprint(key, asciiMode.Canonical(), uplinkPattern, downlinkPattern)
 
-	uplink, err := newSingleDirectionTable(key, asciiMode.uplinkPreference(), customPatternForToken(asciiMode.Uplink, customPattern))
+	uplink, err := newSingleDirectionTable(key, asciiMode.uplinkPreference(), uplinkPattern)
 	if err != nil {
 		return nil, err
 	}
+	uplink.hint = hint
 	if asciiMode.Uplink == asciiMode.Downlink {
 		uplink.opposite = uplink
 		return uplink, nil
 	}
 
-	downlink, err := newSingleDirectionTable(key, asciiMode.downlinkPreference(), customPatternForToken(asciiMode.Downlink, customPattern))
+	downlink, err := newSingleDirectionTable(key, asciiMode.downlinkPreference(), downlinkPattern)
 	if err != nil {
 		return nil, err
 	}
+	downlink.hint = hint
 	uplink.opposite = downlink
 	downlink.opposite = uplink
 	return uplink, nil
@@ -146,6 +153,24 @@ func (t *Table) OppositeDirection() *Table {
 		return t
 	}
 	return t.opposite
+}
+
+func (t *Table) Hint() uint32 {
+	if t == nil {
+		return 0
+	}
+	return t.hint
+}
+
+func tableHintFingerprint(key string, mode string, uplinkPattern string, downlinkPattern string) uint32 {
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		"sudoku-table-hint",
+		key,
+		mode,
+		strings.ToLower(strings.TrimSpace(uplinkPattern)),
+		strings.ToLower(strings.TrimSpace(downlinkPattern)),
+	}, "\x00")))
+	return binary.BigEndian.Uint32(sum[:4])
 }
 
 func packHintsToKey(hints [4]byte) uint32 {

@@ -60,7 +60,7 @@ func (d *BaseDialer) dialBase() (net.Conn, error) {
 	return d.dialBaseWithUplinkMode(ObfsUplinkPure)
 }
 
-func (d *BaseDialer) dialHTTPMaskTunnel(dialCtx context.Context, table *sudoku.Table, uplinkMode ObfsUplinkMode, upgrade func(net.Conn) (net.Conn, error)) (net.Conn, error) {
+func (d *BaseDialer) dialHTTPMaskTunnel(dialCtx context.Context, table *sudoku.Table, tableHint uint32, hasTableHint bool, uplinkMode ObfsUplinkMode, upgrade func(net.Conn) (net.Conn, error)) (net.Conn, error) {
 	if d.Config == nil {
 		return nil, fmt.Errorf("missing config")
 	}
@@ -71,7 +71,7 @@ func (d *BaseDialer) dialHTTPMaskTunnel(dialCtx context.Context, table *sudoku.T
 		PaddingMin:         d.Config.PaddingMin,
 		PaddingMax:         d.Config.PaddingMax,
 		PackedUplink:       uplinkMode == ObfsUplinkPacked,
-	}, table, kipUserHashFromPrivateKey(d.PrivateKey, d.Config.Key), KIPFeatAll)
+	}, table, tableHint, hasTableHint, kipUserHashFromPrivateKey(d.PrivateKey, d.Config.Key), KIPFeatAll)
 	if err != nil {
 		return nil, err
 	}
@@ -90,20 +90,20 @@ func (d *BaseDialer) dialHTTPMaskTunnel(dialCtx context.Context, table *sudoku.T
 	return httpmask.DialTunnel(dialCtx, d.Config.ServerAddress, opts)
 }
 
-func (d *BaseDialer) pickTable() (*sudoku.Table, error) {
+func (d *BaseDialer) pickTable() (*sudoku.Table, uint32, bool, error) {
 	if len(d.Tables) == 0 {
-		return nil, fmt.Errorf("no table configured")
+		return nil, 0, false, fmt.Errorf("no table configured")
 	}
 	if len(d.Tables) == 1 {
-		return d.Tables[0], nil
+		return d.Tables[0], d.Tables[0].Hint(), false, nil
 	}
 	// Use crypto/rand to avoid shared global RNG in concurrent dialing.
 	var b [1]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return nil, fmt.Errorf("random table pick failed: %w", err)
+		return nil, 0, false, fmt.Errorf("random table pick failed: %w", err)
 	}
 	idx := int(b[0]) % len(d.Tables)
-	return d.Tables[idx], nil
+	return d.Tables[idx], d.Tables[idx].Hint(), true, nil
 }
 
 func (d *BaseDialer) dialBaseWithUplinkMode(uplinkMode ObfsUplinkMode) (net.Conn, error) {
@@ -117,12 +117,12 @@ func (d *BaseDialer) dialBaseWithUplinkMode(uplinkMode ObfsUplinkMode) (net.Conn
 	if d.Config.HTTPMaskTunnelEnabled() {
 		dialCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		table, err := d.pickTable()
+		table, tableHint, hasTableHint, err := d.pickTable()
 		if err != nil {
 			return nil, err
 		}
-		conn, err := d.dialHTTPMaskTunnel(dialCtx, table, uplinkMode, func(raw net.Conn) (net.Conn, error) {
-			return ClientHandshakeWithUplinkMode(raw, d.Config, table, d.PrivateKey, uplinkMode)
+		conn, err := d.dialHTTPMaskTunnel(dialCtx, table, tableHint, hasTableHint, uplinkMode, func(raw net.Conn) (net.Conn, error) {
+			return ClientHandshakeWithUplinkMode(raw, d.Config, table, d.PrivateKey, uplinkMode, tableHint, hasTableHint)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("dial http tunnel failed: %w", err)
@@ -153,12 +153,12 @@ func (d *BaseDialer) dialBaseWithUplinkMode(uplinkMode ObfsUplinkMode) (net.Conn
 			}
 		}
 
-		table, err := d.pickTable()
+		table, tableHint, hasTableHint, err := d.pickTable()
 		if err != nil {
 			rawRemote.Close()
 			return nil, err
 		}
-		baseConn, err = ClientHandshakeWithUplinkMode(rawRemote, d.Config, table, d.PrivateKey, uplinkMode)
+		baseConn, err = ClientHandshakeWithUplinkMode(rawRemote, d.Config, table, d.PrivateKey, uplinkMode, tableHint, hasTableHint)
 		if err != nil {
 			return nil, err
 		}

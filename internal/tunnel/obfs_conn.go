@@ -63,6 +63,10 @@ func wrapConnWithObfsMeta(conn net.Conn, uplinkMode ObfsUplinkMode) net.Conn {
 	return &connWithObfsMeta{Conn: conn, uplinkPacked: uplinkMode == ObfsUplinkPacked}
 }
 
+type downlinkWriterSwitcher interface {
+	ReplaceWriter(writer io.Writer, closers ...func() error)
+}
+
 func ConnUplinkPacked(conn net.Conn) (bool, bool) {
 	if conn == nil {
 		return false, false
@@ -72,6 +76,20 @@ func ConnUplinkPacked(conn net.Conn) (bool, bool) {
 		return false, false
 	}
 	return v.SudokuUplinkPacked(), true
+}
+
+func SwitchConnDownlinkWriter(conn net.Conn, writer io.Writer, closers ...func() error) bool {
+	switch v := conn.(type) {
+	case downlinkWriterSwitcher:
+		v.ReplaceWriter(writer, closers...)
+		return true
+	case *connWithObfsMeta:
+		if inner, ok := v.Conn.(downlinkWriterSwitcher); ok {
+			inner.ReplaceWriter(writer, closers...)
+			return true
+		}
+	}
+	return false
 }
 
 func buildClientObfsConnForMode(raw net.Conn, table *sudoku.Table, paddingMin, paddingMax int, pureDownlink bool, uplinkMode ObfsUplinkMode) net.Conn {

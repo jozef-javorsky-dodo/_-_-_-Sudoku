@@ -62,7 +62,8 @@ type ProtocolConfig struct {
 
 	// Tables is an optional candidate set for table rotation.
 	// If provided (len>0), the client will pick one table per connection and the server will
-	// probe the handshake to detect which one was used, keeping the handshake format unchanged.
+	// identify which one was used by probing the handshake uplink and, when needed, using the
+	// KIP client-hello table hint for shared-uplink directional modes.
 	// When Tables is set, Table may be nil.
 	Tables []*sudoku.Table
 

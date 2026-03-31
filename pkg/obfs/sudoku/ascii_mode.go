@@ -74,10 +74,6 @@ func (m ASCIIMode) downlinkPreference() string {
 	return singleDirectionPreference(m.Downlink)
 }
 
-func (m ASCIIMode) supportsProbeBasedRotation() bool {
-	return m.Uplink == asciiModeTokenEntropy
-}
-
 func normalizeASCIIModeToken(token string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(token)) {
 	case "ascii", "prefer_ascii":

@@ -306,6 +306,16 @@ func serverHandshakeCoreWithUserHash(rawConn net.Conn, cfg *ProtocolConfig) (net
 	}
 
 	userHash := hex.EncodeToString(ch.UserHash[:])
+	resolvedTable, err := tunnel.ResolveClientHelloTable(selected.Table, tables, ch)
+	if err != nil {
+		return nil, "", nil, fail(fmt.Errorf("resolve table hint failed: %w", err))
+	}
+	if resolvedTable != selected.Table {
+		downlink, closers := sudoku.NewServerDownlinkWriter(baseConn, resolvedTable.OppositeDirection(), cfg.PaddingMin, cfg.PaddingMax, cfg.EnablePureDownlink)
+		if !tunnel.SwitchConnDownlinkWriter(obfsConn, downlink, closers...) {
+			return nil, "", nil, fail(fmt.Errorf("switch downlink writer failed"))
+		}
+	}
 
 	curve := ecdh.X25519()
 	serverEphemeral, err := curve.GenerateKey(rand.Reader)
