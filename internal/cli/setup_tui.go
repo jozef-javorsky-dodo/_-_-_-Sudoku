@@ -171,7 +171,7 @@ func runSetupWizardTUI(defaultServerPath, publicHost string) (wizardInput, bool,
 				Value(&customTable),
 			huh.NewConfirm().
 				Title("Enable pure Sudoku downlink").
-				Description("Disable to use bandwidth-optimized downlink (requires AEAD)").
+				Description("Disable to use bandwidth-optimized downlink").
 				Value(&enablePureDownlink),
 		),
 		huh.NewGroup(

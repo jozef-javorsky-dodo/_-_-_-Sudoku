@@ -109,10 +109,6 @@ func ClientHandshakeWithUplinkMode(conn net.Conn, cfg *config.Config, table *sud
 	if table == nil {
 		return nil, fmt.Errorf("nil table")
 	}
-	if !cfg.EnablePureDownlink && cfg.AEAD == "none" {
-		return nil, fmt.Errorf("enable_pure_downlink=false requires AEAD")
-	}
-
 	var obfsConn net.Conn
 	switch uplinkMode {
 	case ObfsUplinkPacked:

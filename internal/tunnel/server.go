@@ -263,10 +263,6 @@ func HandshakeAndUpgradeWithTablesMeta(rawConn net.Conn, cfg *config.Config, tab
 	}
 
 	// 1. Sudoku Layer
-	if !cfg.EnablePureDownlink && cfg.AEAD == "none" {
-		return nil, nil, fmt.Errorf("enable_pure_downlink=false requires AEAD")
-	}
-
 	selected, preRead, err := SelectHandshakeObfsByProbe(bufReader, tables, func(probe []byte, table *sudoku.Table, uplinkMode ObfsUplinkMode) error {
 		return probeHandshakeBytes(probe, cfg, table, uplinkMode)
 	})

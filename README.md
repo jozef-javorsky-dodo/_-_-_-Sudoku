@@ -63,7 +63,7 @@ Unlike traditional random-noise obfuscation, this protocol uses multiple masking
 
 ### Downlink Modes
 * **Pure Sudoku Downlink**: Default mode. Both uplink and downlink use classic Sudoku-puzzle encoding.
-* **Bandwidth-Optimized Downlink**: After setting `enable_pure_downlink` to `false`, the downlink splits AEAD ciphertext into 6-bit chunks and reuses the existing padding pool together with the ASCII/entropy/customized preferences to reduce downlink overhead. The uplink still uses the native Sudoku protocol, and the downlink fingerprint remains aligned with the uplink. AEAD must be enabled for this mode.
+* **Bandwidth-Optimized Downlink**: After setting `enable_pure_downlink` to `false`, the downlink splits the byte stream into 6-bit chunks and reuses the existing padding pool together with the ASCII/entropy/customized preferences to reduce downlink overhead. The uplink still uses the native Sudoku protocol, and the downlink fingerprint remains aligned with the uplink.
 
 ### Security & Encryption
 Beneath the obfuscation layer, the protocol optionally employs AEAD to protect data integrity and confidentiality.

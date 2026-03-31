@@ -92,7 +92,7 @@ Client (basic TCP):
   - With `up_ascii_down_entropy`, the downlink still uses a custom layout, but `custom_tables` collapses to the first entry because multiple downlink-only layouts are not probe-distinguishable.
 - `enable_pure_downlink`:
   - `true`: both directions use classic Sudoku encoding
-  - `false`: packed downlink mode to reduce overhead (requires AEAD, and both ends must match)
+  - `false`: packed downlink mode to reduce overhead (both ends must match)
 
 ### HTTP masking / HTTP tunnel
 All HTTP-related knobs live under the `httpmask` object.

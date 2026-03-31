@@ -73,8 +73,8 @@ func TestValidateClient(t *testing.T) {
 	cfg.TargetAddress = "example.com:80"
 	cfg.EnablePureDownlink = false
 	cfg.AEADMethod = "none"
-	if err := cfg.Validate(); err == nil {
-		t.Fatalf("expected downlink AEAD validation error")
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("packed downlink with AEAD none should be allowed: %v", err)
 	}
 }
 

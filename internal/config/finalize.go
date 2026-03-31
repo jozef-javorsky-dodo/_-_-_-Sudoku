@@ -229,10 +229,6 @@ func (c *Config) Finalize() error {
 		c.ProxyMode = normalizeProxyMode(c.ProxyMode)
 	}
 
-	if !c.EnablePureDownlink && c.AEAD == "none" {
-		return fmt.Errorf("enable_pure_downlink=false requires AEAD to be enabled")
-	}
-
 	return nil
 }
 

@@ -35,6 +35,6 @@ with this application without prior consent.
 // The configuration mirrors the CLI behavior: build a Sudoku table via
 // sudoku.NewTable(seed, "prefer_ascii"|"prefer_entropy") or sudoku.NewTableWithCustom
 // (third arg: custom X/P/V pattern such as "xpxvvpvv"), pick an AEAD (chacha20-poly1305 is
-// the default and required when using packed downlink), keep the key and padding settings
+// the default), keep the key and padding settings
 // consistent across client/server, and apply an optional handshake timeout on the server side.
 package apis

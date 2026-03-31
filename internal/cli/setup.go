@@ -160,12 +160,6 @@ func finalizeWizard(in wizardInput) (*WizardResult, error) {
 		paddingMax = paddingMin
 	}
 
-	enablePureDownlink := in.EnablePureDown
-	if !enablePureDownlink && aead == "none" {
-		logx.Warnf("Setup", "Bandwidth-optimized downlink requires AEAD. Forcing chacha20-poly1305.")
-		aead = "chacha20-poly1305"
-	}
-
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
 		pair, err := crypto.GenerateMasterKey()
@@ -184,6 +178,17 @@ func finalizeWizard(in wizardInput) (*WizardResult, error) {
 	if httpMaskMux == "" {
 		httpMaskMux = "off"
 	}
+	customTable := strings.TrimSpace(in.CustomTable)
+	httpMaskHost := strings.TrimSpace(in.HTTPMaskHost)
+	httpMaskPathRoot := strings.TrimSpace(in.HTTPMaskPathRoot)
+	httpMaskCfg := config.HTTPMaskConfig{
+		Disable:   in.DisableHTTPMask,
+		Mode:      httpMaskMode,
+		TLS:       in.HTTPMaskTLS,
+		Host:      httpMaskHost,
+		PathRoot:  httpMaskPathRoot,
+		Multiplex: httpMaskMux,
+	}
 
 	serverCfg := &config.Config{
 		Mode:               "server",
@@ -196,16 +201,9 @@ func finalizeWizard(in wizardInput) (*WizardResult, error) {
 		PaddingMin:         paddingMin,
 		PaddingMax:         paddingMax,
 		ASCII:              asciiMode,
-		CustomTable:        strings.TrimSpace(in.CustomTable),
-		EnablePureDownlink: enablePureDownlink,
-		HTTPMask: config.HTTPMaskConfig{
-			Disable:   in.DisableHTTPMask,
-			Mode:      httpMaskMode,
-			TLS:       in.HTTPMaskTLS,
-			Host:      strings.TrimSpace(in.HTTPMaskHost),
-			PathRoot:  strings.TrimSpace(in.HTTPMaskPathRoot),
-			Multiplex: httpMaskMux,
-		},
+		CustomTable:        customTable,
+		EnablePureDownlink: in.EnablePureDown,
+		HTTPMask:           httpMaskCfg,
 	}
 
 	clientCfg := &config.Config{
@@ -218,18 +216,11 @@ func finalizeWizard(in wizardInput) (*WizardResult, error) {
 		PaddingMin:         paddingMin,
 		PaddingMax:         paddingMax,
 		ASCII:              asciiMode,
-		CustomTable:        strings.TrimSpace(in.CustomTable),
+		CustomTable:        customTable,
 		ProxyMode:          "pac",
 		RuleURLs:           config.DefaultPACRuleURLs(),
-		EnablePureDownlink: enablePureDownlink,
-		HTTPMask: config.HTTPMaskConfig{
-			Disable:   in.DisableHTTPMask,
-			Mode:      httpMaskMode,
-			TLS:       in.HTTPMaskTLS,
-			Host:      strings.TrimSpace(in.HTTPMaskHost),
-			PathRoot:  strings.TrimSpace(in.HTTPMaskPathRoot),
-			Multiplex: httpMaskMux,
-		},
+		EnablePureDownlink: in.EnablePureDown,
+		HTTPMask:           httpMaskCfg,
 	}
 	if err := serverCfg.Finalize(); err != nil {
 		return nil, fmt.Errorf("finalize server config: %w", err)

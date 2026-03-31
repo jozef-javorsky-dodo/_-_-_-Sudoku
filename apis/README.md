@@ -236,5 +236,5 @@ _ = apis.DialReverseClientSession(ctx, cfg, "client-id", []apis.ReverseRoute{
 ## 说明
 - `DefaultConfig()` 提供合理默认值，仍需设置 `Key`、`Table` 及对应的地址字段。
 - 服务端如需回落（HTTP/原始 TCP），可从 `HandshakeError` 取出 `HTTPHeaderData` 与 `ReadData` 按顺序重放。
-- 带宽优化模式：将 `enable_pure_downlink` 设为 `false`，需启用 AEAD。
+- 带宽优化模式：将 `enable_pure_downlink` 设为 `false` 即可启用。
 - 如需 UoT，客户端调用 `DialUDPOverTCP`；服务端可用 `ServerHandshakeAuto`（或 `HTTPMaskTunnelServer.HandleConnAuto`）自动区分 TCP/UoT，随后对 UoT 连接调用 `HandleUoT`。

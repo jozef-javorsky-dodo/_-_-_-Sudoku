@@ -35,7 +35,7 @@ Docs map:
 - **Sudoku obfuscation**: bytes encoded as 4×4 Sudoku hints; `prefer_ascii` keeps output printable, `prefer_entropy` maximizes entropy.
 - **AEAD**: `chacha20-poly1305` (default), `aes-128-gcm`, or `none` (test only); key hashed with SHA-256 to derive cipher key.
 - **Handshake**: timestamp + nonce; server validates time skew and mode.
-- **Downlink modes**: pure Sudoku (default) or packed 6-bit downlink (`enable_pure_downlink=false`, requires AEAD).
+- **Downlink modes**: pure Sudoku (default) or packed 6-bit downlink (`enable_pure_downlink=false`).
 
 ## Protocol (Wire Formats)
 This section describes the **logical byte framing** used inside a tunnel connection.
@@ -269,7 +269,7 @@ WantedBy=multi-user.target
 - **数独混淆**：每字节编码为 4×4 数独提示；`prefer_ascii` 输出可打印字符，`prefer_entropy` 输出高熵字节。
 - **AEAD 加密**：`chacha20-poly1305`（默认）/`aes-128-gcm`/`none`（仅测试）；密钥经 SHA-256 派生。
 - **握手**：时间戳 + nonce；服务端校验时间偏差与模式是否一致。
-- **下行模式**：默认纯数独下行；`enable_pure_downlink=false` 启用 6bit 拆分下行（需 AEAD）。
+- **下行模式**：默认纯数独下行；`enable_pure_downlink=false` 启用 6bit 拆分下行。
 
 ## 协议（更精确的字段定义）
 本节描述的是隧道内部的**逻辑字节格式**。真实网络上的字节仍会先经过数独混淆层（并可选先走 HTTP 伪装）。
@@ -405,7 +405,7 @@ KIP 消息类型：
 ```
 
 - ASCII 风格：`"ascii": "prefer_ascii"`（客户端/服务端一致）。
-- 带宽优化：将 `"enable_pure_downlink"` 设为 `false` 启用带宽优化下行（需 AEAD）。
+- 带宽优化：将 `"enable_pure_downlink"` 设为 `false` 启用带宽优化下行。
 - 自定义字节特征：添加 `custom_table`（两个 `x`、两个 `p`、四个 `v`，如 `xpxvvpvv`，共 420 种排列），`ascii` 优先级最高。
 客户端分流模式（路由）：
 - `rule_urls: ["global"]`（默认）：全局代理

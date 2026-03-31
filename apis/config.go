@@ -79,7 +79,7 @@ type ProtocolConfig struct {
 	PaddingMax int
 
 	// EnablePureDownlink controls downlink encoding.
-	// When false, bandwidth-optimized 6-bit packed downlink is used (requires AEAD).
+	// When false, bandwidth-optimized 6-bit packed downlink is used.
 	EnablePureDownlink bool
 
 	// ============ Client-Only Fields ============
@@ -166,10 +166,6 @@ func (c *ProtocolConfig) Validate() error {
 
 	if c.PaddingMax < c.PaddingMin {
 		return fmt.Errorf("PaddingMax (%d) must be >= PaddingMin (%d)", c.PaddingMax, c.PaddingMin)
-	}
-
-	if !c.EnablePureDownlink && c.AEADMethod == "none" {
-		return fmt.Errorf("bandwidth optimized downlink requires AEAD")
 	}
 
 	if c.HandshakeTimeoutSeconds < 0 {

@@ -61,7 +61,7 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsPackedWithoutAEAD(t *testing.T) {
+func TestLoadAllowsPackedWithoutAEAD(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "cfg.json")
 
@@ -77,8 +77,15 @@ func TestLoadRejectsPackedWithoutAEAD(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	if _, err := Load(path); err == nil {
-		t.Fatalf("expected error when packed downlink used without AEAD")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("packed downlink with AEAD none should load: %v", err)
+	}
+	if cfg.EnablePureDownlink {
+		t.Fatalf("expected packed downlink to remain enabled")
+	}
+	if cfg.AEAD != "none" {
+		t.Fatalf("unexpected AEAD after load: %s", cfg.AEAD)
 	}
 }
 
