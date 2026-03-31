@@ -154,10 +154,7 @@ func startTCPEchoServer(ctx context.Context) (addr string, closeFn func() error,
 		}
 		return nil
 	}
-	go func() {
-		<-ctx.Done()
-		_ = closeFn()
-	}()
+	watchContextCancel(ctx, closeFn)
 	return ln.Addr().String(), closeFn, nil
 }
 
@@ -189,11 +186,22 @@ func startFallbackHTTPServer(ctx context.Context) (addr string, closeFn func() e
 		}
 		return nil
 	}
+	watchContextCancel(ctx, closeFn)
+	return ln.Addr().String(), closeFn, nil
+}
+
+func watchContextCancel(ctx context.Context, closeFn func() error) {
+	if ctx == nil || closeFn == nil {
+		return
+	}
+	done := ctx.Done()
+	if done == nil {
+		return
+	}
 	go func() {
-		<-ctx.Done()
+		<-done
 		_ = closeFn()
 	}()
-	return ln.Addr().String(), closeFn, nil
 }
 
 func writeFull(conn net.Conn, b []byte) error {
@@ -226,6 +234,7 @@ func representativeCombos() []combo {
 		{true, true, "auto", "auto", "", "prefer_entropy", "default"},
 		{false, true, "on", "ws", "aabbcc", "prefer_ascii", "custom7"},
 		{true, false, "off", "ws", "", "prefer_entropy", "custom7"},
+		{true, false, "off", "ws", "", "up_ascii_down_entropy", "custom7"},
 		{true, true, "off", "auto", "", "up_ascii_down_entropy", "custom7"},
 		{false, true, "auto", "ws", "aabbcc", "up_entropy_down_ascii", "custom7"},
 	}

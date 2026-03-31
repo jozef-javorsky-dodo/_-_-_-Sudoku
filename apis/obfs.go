@@ -73,6 +73,6 @@ func buildServerObfsConn(raw net.Conn, cfg *ProtocolConfig, table *sudoku.Table,
 	default:
 		uplink = sudoku.NewConn(raw, table, cfg.PaddingMin, cfg.PaddingMax, record)
 	}
-	downlink, closers := sudoku.NewServerDownlinkWriter(raw, table, cfg.PaddingMin, cfg.PaddingMax, cfg.EnablePureDownlink)
+	downlink, closers := sudoku.NewServerDownlinkWriter(raw, table.OppositeDirection(), cfg.PaddingMin, cfg.PaddingMax, cfg.EnablePureDownlink)
 	return uplink, sudoku.NewDirectionalConn(raw, uplink, downlink, closers...)
 }
