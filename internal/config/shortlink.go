@@ -27,6 +27,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/SUDOKU-ASCII/sudoku/pkg/obfs/sudoku"
 )
 
 // shortLinkPayload holds the minimal fields we expose in sudoku:// links.
@@ -34,7 +36,7 @@ type shortLinkPayload struct {
 	Host           string   `json:"h"`            // server host / IP
 	Port           int      `json:"p"`            // server port
 	Key            string   `json:"k"`            // shared key
-	ASCII          string   `json:"a,omitempty"`  // "ascii" or "entropy"
+	ASCII          string   `json:"a,omitempty"`  // "ascii", "entropy", or directional "up_*_down_*"
 	AEAD           string   `json:"e,omitempty"`  // AEAD method
 	MixPort        int      `json:"m,omitempty"`  // local mixed proxy port
 	PackedDownlink bool     `json:"x,omitempty"`  // bandwidth-optimized downlink (non-pure Sudoku)
@@ -178,14 +180,26 @@ func BuildConfigFromShortLink(link string) (*Config, error) {
 }
 
 func encodeASCII(mode string) string {
-	if strings.ToLower(mode) == "prefer_ascii" || mode == "ascii" {
-		return "ascii"
+	normalized, err := sudoku.NormalizeASCIIMode(mode)
+	if err != nil {
+		normalized = strings.ToLower(strings.TrimSpace(mode))
 	}
-	return "entropy"
+	switch normalized {
+	case "prefer_ascii", "ascii":
+		return "ascii"
+	case "", "prefer_entropy", "entropy":
+		return "entropy"
+	default:
+		return normalized
+	}
 }
 
 func decodeASCII(val string) string {
-	switch strings.ToLower(val) {
+	normalized, err := sudoku.NormalizeASCIIMode(val)
+	if err == nil {
+		return normalized
+	}
+	switch strings.ToLower(strings.TrimSpace(val)) {
 	case "ascii", "prefer_ascii":
 		return "prefer_ascii"
 	default:

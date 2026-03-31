@@ -62,6 +62,34 @@ func TestCustomLayoutAsciiPriority(t *testing.T) {
 	}
 }
 
+func TestCustomLayoutDirectionalModes(t *testing.T) {
+	table, err := NewTableWithCustom("seed-custom", "up_ascii_down_entropy", "xpxvvpvv")
+	if err != nil {
+		t.Fatalf("failed to build directional table: %v", err)
+	}
+	if !table.IsASCII || table.layout.name != "ascii" {
+		t.Fatalf("expected uplink ascii layout, got %s", table.layout.name)
+	}
+	if peer := table.OppositeDirection(); peer == nil || peer == table {
+		t.Fatalf("expected distinct downlink table")
+	} else if peer.IsASCII || peer.layout.name == "ascii" {
+		t.Fatalf("expected entropy/custom downlink layout, got %s", peer.layout.name)
+	}
+
+	table, err = NewTableWithCustom("seed-custom", "up_entropy_down_ascii", "xpxvvpvv")
+	if err != nil {
+		t.Fatalf("failed to build reverse directional table: %v", err)
+	}
+	if table.IsASCII || table.layout.name == "ascii" {
+		t.Fatalf("expected entropy/custom uplink layout, got %s", table.layout.name)
+	}
+	if peer := table.OppositeDirection(); peer == nil || peer == table {
+		t.Fatalf("expected distinct ascii downlink table")
+	} else if !peer.IsASCII || peer.layout.name != "ascii" {
+		t.Fatalf("expected ascii downlink layout, got %s", peer.layout.name)
+	}
+}
+
 func TestCustomLayoutConnRoundTrip(t *testing.T) {
 	table, err := NewTableWithCustom("roundtrip", "prefer_entropy", "xpxvvpvv")
 	if err != nil {
@@ -139,6 +167,9 @@ func TestCustomLayoutInvalidPatterns(t *testing.T) {
 	}
 	if _, err := NewTableWithCustom("seed", "badmode", "xpxvvpvv"); err == nil {
 		t.Fatalf("expected error for invalid ascii mode")
+	}
+	if _, err := NewTableWithCustom("seed", "up_ascii_down_bad", "xpxvvpvv"); err == nil {
+		t.Fatalf("expected error for invalid directional ascii mode")
 	}
 }
 

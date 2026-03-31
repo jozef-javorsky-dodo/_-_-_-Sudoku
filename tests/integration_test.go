@@ -668,6 +668,27 @@ func TestCustomTableTraffic(t *testing.T) {
 	}
 }
 
+func TestDirectionalCustomTableTraffic(t *testing.T) {
+	payload := bytes.Repeat([]byte{0xAA, 0x55, 0xF0, 0x0F}, 4096)
+	customPattern := "xpxvvpvv"
+
+	upASCII, downEntropy := runTCPTransfer(t, "up_ascii_down_entropy", true, "directional-key-a", payload, customPattern)
+	if upASCII.AsciiRatio() < 0.9 {
+		t.Fatalf("directional uplink ascii ratio too low: %.2f", upASCII.AsciiRatio())
+	}
+	if downEntropy.AvgHammingWeight() < 4.6 {
+		t.Fatalf("directional downlink custom hamming too low: %.2f", downEntropy.AvgHammingWeight())
+	}
+
+	upEntropy, downASCII := runTCPTransfer(t, "up_entropy_down_ascii", true, "directional-key-b", payload, customPattern)
+	if upEntropy.AvgHammingWeight() < 4.6 {
+		t.Fatalf("directional uplink custom hamming too low: %.2f", upEntropy.AvgHammingWeight())
+	}
+	if downASCII.AsciiRatio() < 0.9 {
+		t.Fatalf("directional downlink ascii ratio too low: %.2f", downASCII.AsciiRatio())
+	}
+}
+
 func TestUDPOverTCPWithPackedDownlink(t *testing.T) {
 	ports, _ := getFreePorts(3)
 	serverPort := ports[0]

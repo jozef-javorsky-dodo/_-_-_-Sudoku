@@ -39,6 +39,7 @@ type Table struct {
 	PaddingPool []byte
 	IsASCII     bool // Marks the current encoding mode
 	layout      *byteLayout
+	opposite    *Table
 }
 
 // NewTable initializes the obfuscation tables with built-in layouts.
@@ -52,10 +53,35 @@ func NewTable(key string, mode string) *Table {
 	return t
 }
 
-// NewTableWithCustom initializes obfuscation tables using either predefined or custom layouts.
-// mode: "prefer_ascii" or "prefer_entropy". If a custom pattern is provided, ASCII mode still takes precedence.
+// NewTableWithCustom initializes the uplink/probe Sudoku table using either predefined
+// or directional layouts. Directional modes such as "up_ascii_down_entropy" return the
+// client->server table and internally attach the opposite direction table for runtime use.
 // The customPattern must contain 8 characters with exactly 2 x, 2 p, and 4 v (case-insensitive).
 func NewTableWithCustom(key string, mode string, customPattern string) (*Table, error) {
+	asciiMode, err := ParseASCIIMode(mode)
+	if err != nil {
+		return nil, err
+	}
+
+	uplink, err := newSingleDirectionTable(key, asciiMode.uplinkPreference(), customPatternForToken(asciiMode.Uplink, customPattern))
+	if err != nil {
+		return nil, err
+	}
+	if asciiMode.Uplink == asciiMode.Downlink {
+		uplink.opposite = uplink
+		return uplink, nil
+	}
+
+	downlink, err := newSingleDirectionTable(key, asciiMode.downlinkPreference(), customPatternForToken(asciiMode.Downlink, customPattern))
+	if err != nil {
+		return nil, err
+	}
+	uplink.opposite = downlink
+	downlink.opposite = uplink
+	return uplink, nil
+}
+
+func newSingleDirectionTable(key string, mode string, customPattern string) (*Table, error) {
 	start := time.Now()
 
 	layout, err := resolveLayout(mode, customPattern)
@@ -106,6 +132,20 @@ func NewTableWithCustom(key string, mode string, customPattern string) (*Table, 
 	}
 	logx.Infof("Init", "Sudoku Tables initialized (%s) in %v", layout.name, time.Since(start))
 	return t, nil
+}
+
+func customPatternForToken(token string, customPattern string) string {
+	if token == asciiModeTokenEntropy {
+		return customPattern
+	}
+	return ""
+}
+
+func (t *Table) OppositeDirection() *Table {
+	if t == nil || t.opposite == nil {
+		return t
+	}
+	return t.opposite
 }
 
 func packHintsToKey(hints [4]byte) uint32 {

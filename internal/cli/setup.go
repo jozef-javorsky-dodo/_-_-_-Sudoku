@@ -10,6 +10,7 @@ import (
 	"github.com/SUDOKU-ASCII/sudoku/internal/config"
 	"github.com/SUDOKU-ASCII/sudoku/pkg/crypto"
 	"github.com/SUDOKU-ASCII/sudoku/pkg/logx"
+	"github.com/SUDOKU-ASCII/sudoku/pkg/obfs/sudoku"
 )
 
 // WizardResult aggregates outputs from the interactive setup.
@@ -73,7 +74,7 @@ func runSetupWizardPrompt(defaultServerPath, publicHost string) (wizardInput, er
 	mixPort := promptInt(reader, "Client mixed proxy port", 1080)
 	fallback := promptString(reader, "Fallback address for suspicious traffic", "", "127.0.0.1:80")
 	aead := promptString(reader, "AEAD (chacha20-poly1305 / aes-128-gcm / none)", "", "chacha20-poly1305")
-	asciiMode := promptString(reader, "Encoding (ascii / entropy)", "", "entropy")
+	asciiMode := promptString(reader, "Encoding (ascii / entropy / up_ascii_down_entropy)", "", "entropy")
 	suspiciousAction := promptString(reader, "Suspicious action (fallback / silent)", "", "fallback")
 	paddingMin := promptInt(reader, "Padding min (%)", 5)
 	paddingMax := promptInt(reader, "Padding max (%)", 15)
@@ -297,10 +298,9 @@ func promptInt(r *bufio.Reader, label string, def int) int {
 }
 
 func resolveASCII(val string) string {
-	switch strings.ToLower(strings.TrimSpace(val)) {
-	case "ascii", "prefer_ascii":
-		return "prefer_ascii"
-	default:
-		return "prefer_entropy"
+	normalized, err := sudoku.NormalizeASCIIMode(val)
+	if err == nil {
+		return normalized
 	}
+	return "prefer_entropy"
 }

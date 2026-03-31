@@ -153,6 +153,8 @@ func runSetupWizardTUI(defaultServerPath, publicHost string) (wizardInput, bool,
 				Options(
 					huh.NewOption("entropy (recommended)", "entropy"),
 					huh.NewOption("ascii", "ascii"),
+					huh.NewOption("up_ascii_down_entropy", "up_ascii_down_entropy"),
+					huh.NewOption("up_entropy_down_ascii", "up_entropy_down_ascii"),
 				).
 				Value(&encoding),
 			huh.NewInput().

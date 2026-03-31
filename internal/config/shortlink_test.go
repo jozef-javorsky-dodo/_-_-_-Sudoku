@@ -78,7 +78,7 @@ func TestShortLinkRoundTrip_CustomTablesAndCDN(t *testing.T) {
 	cfg := &Config{
 		Mode:               "client",
 		LocalPort:          1081,
-		ServerAddress:      "cc.futai.io:443",
+		ServerAddress:      "edge.example.net:443",
 		Key:                "deadbeef",
 		AEAD:               "aes-128-gcm",
 		ASCII:              "prefer_entropy",
@@ -127,6 +127,36 @@ func TestShortLinkRoundTrip_CustomTablesAndCDN(t *testing.T) {
 	}
 	if decoded.HTTPMask.Disable {
 		t.Fatalf("disable http mask mismatch, got %v", decoded.HTTPMask.Disable)
+	}
+}
+
+func TestShortLinkRoundTrip_DirectionalASCII(t *testing.T) {
+	cfg := &Config{
+		Mode:               "client",
+		LocalPort:          1081,
+		ServerAddress:      "edge.example.net:443",
+		Key:                "deadbeef",
+		AEAD:               "aes-128-gcm",
+		ASCII:              "up_ascii_down_entropy",
+		CustomTables:       []string{"xpxvvpvv", "vxpvxvvp"},
+		EnablePureDownlink: true,
+	}
+
+	link, err := BuildShortLinkFromConfig(cfg, "")
+	if err != nil {
+		t.Fatalf("BuildShortLinkFromConfig error: %v", err)
+	}
+
+	decoded, err := BuildConfigFromShortLink(link)
+	if err != nil {
+		t.Fatalf("BuildConfigFromShortLink error: %v", err)
+	}
+
+	if decoded.ASCII != "up_ascii_down_entropy" {
+		t.Fatalf("ascii mismatch, got %s", decoded.ASCII)
+	}
+	if len(decoded.CustomTables) != len(cfg.CustomTables) {
+		t.Fatalf("custom tables length mismatch, got %d", len(decoded.CustomTables))
 	}
 }
 
@@ -185,7 +215,7 @@ func TestShortLinkAdvertiseHostWithPort(t *testing.T) {
 		},
 	}
 
-	link, err := BuildShortLinkFromConfig(cfg, "cc.futai.io:443")
+	link, err := BuildShortLinkFromConfig(cfg, "edge.example.net:443")
 	if err != nil {
 		t.Fatalf("BuildShortLinkFromConfig error: %v", err)
 	}
@@ -194,7 +224,7 @@ func TestShortLinkAdvertiseHostWithPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildConfigFromShortLink error: %v", err)
 	}
-	if decoded.ServerAddress != "cc.futai.io:443" {
+	if decoded.ServerAddress != "edge.example.net:443" {
 		t.Fatalf("server address mismatch, got %s", decoded.ServerAddress)
 	}
 	if decoded.HTTPMask.Mode != "auto" {

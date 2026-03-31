@@ -24,6 +24,8 @@ import (
 	"net"
 	"path"
 	"strings"
+
+	"github.com/SUDOKU-ASCII/sudoku/pkg/obfs/sudoku"
 )
 
 func normalizeLower(s string) string {
@@ -131,7 +133,11 @@ func (c *Config) Finalize() error {
 	if strings.TrimSpace(c.ASCII) == "" {
 		c.ASCII = "prefer_entropy"
 	} else {
-		c.ASCII = normalizeLower(c.ASCII)
+		if normalized, err := sudoku.NormalizeASCIIMode(c.ASCII); err == nil {
+			c.ASCII = normalized
+		} else {
+			c.ASCII = normalizeLower(c.ASCII)
+		}
 	}
 
 	c.HTTPMask.Mode = normalizeHTTPMaskMode(c.HTTPMask.Mode)

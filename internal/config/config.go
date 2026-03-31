@@ -32,7 +32,7 @@ type Config struct {
 	PaddingMax         int            `json:"padding_max"`
 	RuleURLs           []string       `json:"rule_urls"`            // Empty = use defaults; supports "global", "direct" keywords
 	ProxyMode          string         `json:"proxy_mode"`           // Runtime state, populated by Load logic
-	ASCII              string         `json:"ascii"`                // "prefer_entropy" (default): low entropy; "prefer_ascii": pure ASCII, high entropy
+	ASCII              string         `json:"ascii"`                // "prefer_entropy", "prefer_ascii", or directional "up_ascii_down_entropy"/"up_entropy_down_ascii"
 	CustomTable        string         `json:"custom_table"`         // Optional: defines X/P/V layout, e.g. "xpxvvpvv"
 	CustomTables       []string       `json:"custom_tables"`        // Optional: rotate among multiple X/P/V layouts
 	EnablePureDownlink bool           `json:"enable_pure_downlink"` // Enable pure Sudoku downlink; false uses bandwidth-optimized packed encoding
