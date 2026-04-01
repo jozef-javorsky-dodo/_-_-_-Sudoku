@@ -1,6 +1,8 @@
 <p align="center">
   <img src="./assets/logo-cute.svg" width="100%">
     一种抛弃随机数基于数独的代理协议，开启了明文 / 低熵 / 用户自定义特征代理时代
+    <br>
+    理论上解决了上下行对等的问题
 </p>
 
 # Sudoku (ASCII)

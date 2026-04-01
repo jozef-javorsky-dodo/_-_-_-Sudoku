@@ -2,6 +2,8 @@
 <p align="center">
   <img src="./assets/logo-brutal.svg" width="100%">
     A Sudoku-based proxy protocol that abandons randomness and ushers in the era of plaintext / low-entropy / user-defined-fingerprint proxies
+    <br>
+    theoretically solved the problem of traffic upstream and downstream parity.
 </p>
 
 # Sudoku (ASCII)
