@@ -30,15 +30,14 @@ Version requirements:
 - Official Desktop client sudoku4x4: **sudoku4x4 >= v0.0.9**
 
 ### Android
-- **CMFA (Clash Meta for Android / Mihomo kernel)**: https://github.com/MetaCubeX/ClashMetaForAndroid
+- **CMFA**: https://github.com/MetaCubeX/ClashMetaForAndroid
 - **Sudodroid (official Sudoku client)**: https://github.com/SUDOKU-ASCII/sudoku-android
 
 ### iOS
-- **Clash Mi (Mihomo kernel)**: https://github.com/KaringX/clashmi (App Store: https://apps.apple.com/us/app/clash-mi/id6744321968)
+- **Clash Lite**: (App Store: https://apps.apple.com/us/app/clash-lite/id6761357475)
 
 ### Desktop (Windows/macOS/Linux)
 - **Sudoku Desktop (official Sudoku desktop client)**: https://github.com/SUDOKU-ASCII/sudoku-desktop
-- **Any Mihomo-kernel GUI wrapper** (e.g. Clash Verge Rev): https://github.com/Clash-Verge-rev/clash-verge-rev
 
 ### Routers (OpenWrt)
 - **OpenClash**: https://github.com/vernesong/OpenClash
